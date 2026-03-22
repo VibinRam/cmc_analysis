@@ -1,0 +1,11 @@
+name: cmc_vibin
+channels:
+  - defaults
+dependencies:
+  - pandas
+  - python=3.10
+  - matplotlib
+  - ipykernel
+  - cython
+  - numpy
+prefix: /opt/miniconda3/envs/cmc_vibin
