@@ -50,6 +50,9 @@ BHFORM_COLS = [
     "vsarray14", "vsarray15"
 ]
 
+BHMERG_COLS = [
+    "time", "type", "r", "id1", "id2", "m1", "m2", "spin1", "spin2", "m_final", "spin_final", "v_kick", "v_esc", "a_final", "e_final", "a_50M", "e_50M", "a_100M", "e_100M", "a_500M", "e_500M"]
+
 EVENT_TO_COLOR = {
     "formation" : 'c',
     "collision" : 'g',
@@ -92,6 +95,13 @@ def calc_chirp_mass(m1, m2):
     dinom = np.power(m1 + m2, 1.0/5.0)
 
     return numer/dinom
+
+def calc_effective_spin(m1, m2, s1, s2):
+
+    numer = m1*s1 + m2*s2
+    denom = m1 + m2
+
+    return numer/denom
 
 def code_unit_to_myr(time):
     return CODE_TO_MYR * time
@@ -310,6 +320,11 @@ def parse_bh_mergers(out_loc, prefix):
                 type_merged = parent_types[0]
                 mass_host = parent_masses[1]
                 type_host = parent_types[1]
+
+            # Keep only BH+BH mergers; semergedisrupt also logs mixed-type mergers
+            # that do not appear in bhmerger.dat.
+            if type_host != 14 or type_merged != 14:
+                continue
             
             if id_rem not in bh_mergers:
 
@@ -332,6 +347,129 @@ def parse_bh_mergers(out_loc, prefix):
                 bh_mergers[id_rem]["type_merged"].append(type_merged)
                 bh_mergers[id_rem]["mass_host"].append(mass_host)
                 bh_mergers[id_rem]["type_host"].append(type_host)
+
+    mergerdat_fname = f"{prefix}.bhmerger.dat"
+
+    mergerdat_file = os.path.join(out_loc, mergerdat_fname)
+
+    merger_df = pd.read_csv(mergerdat_file, comment='#', sep=r'\s+', engine='python',  header=None,  index_col=None)
+
+    merger_df.columns = BHMERG_COLS
+
+    # Initialize spin arrays once per remnant before filling from bhmerger.dat.
+    for id_rem, merger_info in bh_mergers.items():
+        n_mergers = len(merger_info["time"])
+        merger_info["spin_host"] = np.full(n_mergers, np.nan)
+        merger_info["spin_merged"] = np.full(n_mergers, np.nan)
+
+    unmatched_rows = []
+
+    for row in merger_df.itertuples():
+
+        if int(row.id1) in bh_mergers.keys():
+
+            id_rem = int(row.id1)
+            id_merged = int(row.id2)
+            spin_rem = float(row.spin1)
+            spin_merged = float(row.spin2)
+            row_time = float(row.time)
+
+        elif int(row.id2) in bh_mergers.keys():
+
+            id_rem = int(row.id2)
+            id_merged = int(row.id1)
+            spin_rem = float(row.spin2)
+            spin_merged = float(row.spin1)
+            row_time = float(row.time)
+
+        else:
+            unmatched_rows.append(row)
+
+            continue
+
+        match_inds = [
+            idx
+            for idx, candidate in enumerate(bh_mergers[id_rem]["id_merged"])
+            if candidate == id_merged
+        ]
+
+        if not match_inds:
+            unmatched_rows.append(row)
+            continue
+
+        # If there are repeated IDs, match by closest event time.
+        merg_ind = min(
+            match_inds,
+            key=lambda idx: abs(bh_mergers[id_rem]["time"][idx] - row_time)
+        )
+
+        bh_mergers[id_rem]["spin_host"][merg_ind] = spin_rem
+
+        bh_mergers[id_rem]["spin_merged"][merg_ind] = spin_merged
+
+    # Add bhmerger-only pairs that are absent from semergedisrupt.
+    # For these rows, use the more massive component as host/remnant proxy.
+    n_fallback_added = 0
+
+    for row in unmatched_rows:
+
+        if float(row.m1) >= float(row.m2):
+            id_rem = int(row.id1)
+            id_merged = int(row.id2)
+            mass_host = float(row.m1)
+            mass_merged = float(row.m2)
+            spin_host = float(row.spin1)
+            spin_merged = float(row.spin2)
+        else:
+            id_rem = int(row.id2)
+            id_merged = int(row.id1)
+            mass_host = float(row.m2)
+            mass_merged = float(row.m1)
+            spin_host = float(row.spin2)
+            spin_merged = float(row.spin1)
+
+        if id_rem not in bh_mergers:
+
+            bh_mergers[id_rem] = {
+                "time": [float(row.time)],
+                "mass_rem": [float(row.m_final)],
+                "id_merged": [id_merged],
+                "mass_merged": [mass_merged],
+                "type_merged": [14],
+                "mass_host": [mass_host],
+                "type_host": [14],
+                "spin_host": np.array([spin_host]),
+                "spin_merged": np.array([spin_merged]),
+            }
+
+        else:
+
+            bh_mergers[id_rem]["time"].append(float(row.time))
+            bh_mergers[id_rem]["mass_rem"].append(float(row.m_final))
+            bh_mergers[id_rem]["id_merged"].append(id_merged)
+            bh_mergers[id_rem]["mass_merged"].append(mass_merged)
+            bh_mergers[id_rem]["type_merged"].append(14)
+            bh_mergers[id_rem]["mass_host"].append(mass_host)
+            bh_mergers[id_rem]["type_host"].append(14)
+            bh_mergers[id_rem]["spin_host"] = np.append(bh_mergers[id_rem]["spin_host"], spin_host)
+            bh_mergers[id_rem]["spin_merged"] = np.append(bh_mergers[id_rem]["spin_merged"], spin_merged)
+
+        n_fallback_added += 1
+
+    if n_fallback_added:
+        logger.warning(
+            "Added %d bhmerger-only rows that were missing in %s.",
+            n_fallback_added,
+            merger_fname,
+        )
+
+    if unmatched_rows and not n_fallback_added:
+        logger.warning(
+            "%d rows in %s could not be matched to %s; spins remain NaN for unmatched events.",
+            len(unmatched_rows),
+            mergerdat_fname,
+            merger_fname,
+        )
 
     with open(os.path.join(out_loc, "bh_mergers.pkl"), "wb") as f:
         pickle.dump(bh_mergers, f, protocol=pickle.HIGHEST_PROTOCOL)    
@@ -427,6 +565,8 @@ def parse_bh_escapers(out_loc, prefix):
         companion_ids = []
         companion_types = []
         companion_masses = []
+        spins = []
+        companion_spins = []
     
         if row.binflag == 0 and int(row.startype) == 14:
             
@@ -444,6 +584,8 @@ def parse_bh_escapers(out_loc, prefix):
             companion_ids.append(None)
             companion_types.append(None)
             companion_masses.append(None)
+            spins.append(float(row.bhspin) if pd.notna(row.bhspin) else np.nan)
+            companion_spins.append(np.nan)
             
         if row.binflag == 1 and int(row.bin_startype0) == 14:
 
@@ -460,6 +602,8 @@ def parse_bh_escapers(out_loc, prefix):
             eccentr.append(float(row.e))
             companion_ids.append(int(row.id1))
             companion_types.append(int(row.bin_startype1))
+            spins.append(float(row.bhspin1) if pd.notna(row.bhspin1) else np.nan)
+            companion_spins.append(float(row.bhspin2) if pd.notna(row.bhspin2) else np.nan)
 
         if row.binflag == 1 and int(row.bin_startype1) == 14:
 
@@ -476,6 +620,8 @@ def parse_bh_escapers(out_loc, prefix):
             eccentr.append(float(row.e))
             companion_ids.append(int(row.id0))
             companion_types.append(int(row.bin_startype0))
+            spins.append(float(row.bhspin2) if pd.notna(row.bhspin2) else np.nan)
+            companion_spins.append(float(row.bhspin1) if pd.notna(row.bhspin1) else np.nan)
         
         for i in range(len(bh_ids)):
                     
@@ -487,7 +633,9 @@ def parse_bh_escapers(out_loc, prefix):
                 "a" : semi_maj[i],
                 "e" : eccentr[i],
                 "companion_id" : companion_ids[i],
-                "companion_type" : companion_types[i]
+                "companion_type" : companion_types[i],
+                "spin" : spins[i],
+                "companion_spin" : companion_spins[i]
                }
     
     with open(os.path.join(out_loc, "bh_escapers.pkl"), 'wb') as f:
@@ -524,6 +672,22 @@ def parse_bh_formations(out_loc, prefix):
         pickle.dump(bh_formations, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     return bh_formations
+
+def parse_bh_mergers_2(out_loc, prefix):
+
+    merger_fname = f"{prefix}.bhmerger.dat"
+
+    merger_file = os.path.join(out_loc, merger_fname)
+
+    merger_df = pd.read_csv(merger_file, comment='#', sep=r'\s+', engine='python',  header=None,  index_col=None)
+
+    merger_df.columns = BHMERG_COLS
+
+    bh_mergers = {}
+
+    for row in merger_df.itertuples():
+
+        bh_mergers[int(row.ID)]
 
 def parse_snap_times(out_loc, prefix):
 
@@ -633,6 +797,44 @@ def load_bh_formations(out_loc):
 
         logger.error("Error: file \"bh_formations.pkl\" not found. Try parse_bh_formations()")
         raise
+
+    return bh_formations
+
+def augment_formations_with_tracks(bh_formations, bh_tracks):
+
+    # Some CMC runs can miss BH birth events in formation logs.
+    # Seed those BHs from their first appearance in the snapshot tracks.
+    if bh_formations is None:
+        bh_formations = {}
+
+    n_added = 0
+
+    for bh_id, track in bh_tracks.items():
+
+        if not isinstance(bh_id, int):
+            continue
+
+        if bh_id in bh_formations:
+            continue
+
+        if len(track.get("time", [])) == 0 or len(track.get("mass", [])) == 0:
+            continue
+
+        birth_idx = int(np.argmin(track["time"]))
+
+        bh_formations[bh_id] = {
+            "time": float(track["time"][birth_idx]),
+            "m_progenitor": np.nan,
+            "m_bh": float(track["mass"][birth_idx]),
+            "binary": -1,
+            "source": "track_fallback"
+        }
+        n_added += 1
+
+    if n_added > 0:
+        logger.warning(
+            f"Added {n_added} BH formation entries from tracks fallback."
+        )
 
     return bh_formations
 
@@ -778,8 +980,11 @@ class BHWorldLine:
 
     def add_merger(
             self, time, mass, mass_host,
+            host_type,
             partner_id,
             partner_type, partner_mass,
+            host_spin=np.nan,
+            partner_spin=np.nan,
             disrupt=False
         ):
 
@@ -791,9 +996,12 @@ class BHWorldLine:
                     "time" : time,
                     "mass" : mass,
                     "mass_host" : mass_host,
+                    "host_type" : host_type,
+                    "host_spin" : host_spin,
                     "partner_id" : partner_id,
                     "partner_type" : partner_type,
-                    "partner_mass" : partner_mass
+                    "partner_mass" : partner_mass,
+                    "partner_spin" : partner_spin
                 }
             )
         
@@ -811,7 +1019,8 @@ class BHWorldLine:
 
     def add_escape(
             self, time, mass, binflag,
-            a, e, partner_id, partner_type):
+            a, e, partner_id, partner_type,
+            spin=np.nan, partner_spin=np.nan):
 
         self.events.append(
             {
@@ -823,6 +1032,8 @@ class BHWorldLine:
                 "e" : e,
                 "partner_id" : partner_id,
                 "partner_type" : partner_type,
+                "spin" : spin,
+                "partner_spin" : partner_spin,
             }
         )
 
@@ -853,6 +1064,8 @@ class BHWorldLine:
         host_masses = []
         partner_ids = []
         partner_masses = []
+        host_spins = []
+        partner_spins = []
 
         for event in self.events:
 
@@ -860,7 +1073,7 @@ class BHWorldLine:
 
                 if only_bh:
 
-                    if event['partner_type'] != 14:
+                    if (event['partner_type'] != 14) or (event['host_type'] != 14):
 
                         continue
 
@@ -868,12 +1081,16 @@ class BHWorldLine:
                 host_masses.append(event['mass_host'])
                 partner_ids.append(event['partner_id'])
                 partner_masses.append(event['partner_mass'])
+                host_spins.append(event.get('host_spin', np.nan))
+                partner_spins.append(event.get('partner_spin', np.nan))
 
         return {
             'times' : times,
             'host_masses' : host_masses,
             'partner_ids' : partner_ids,
-            'partner_masses' : partner_masses
+            'partner_masses' : partner_masses,
+            'host_spins' : host_spins,
+            'partner_spins' : partner_spins
         }
     
     def get_collisions(self, only_bh=False):
@@ -935,7 +1152,9 @@ class BHWorldLine:
                     'a' : event['a'],
                     'e' : event['e'],
                     'partner_id' : event['partner_id'],
-                    'partner_type' : event['partner_type']
+                    'partner_type' : event['partner_type'],
+                    'spin' : event.get('spin', np.nan),
+                    'partner_spin' : event.get('partner_spin', np.nan)
                 }
             
         return None
@@ -1076,11 +1295,16 @@ def generate_worldlines(out_loc, verbose=True):
 
         logger.setLevel(logging.ERROR)
 
-    bh_formations = load_bh_formations(out_loc)
+    try:
+        bh_formations = load_bh_formations(out_loc)
+    except FileNotFoundError:
+        logger.warning("No bh_formations.pkl found, using tracks fallback only.")
+        bh_formations = {}
     bh_collisions = load_bh_collisions(out_loc)
     bh_mergers = load_bh_mergers(out_loc)
     bh_escapers = load_bh_escapers(out_loc)
     bh_tracks = load_bh_tracks(out_loc)
+    bh_formations = augment_formations_with_tracks(bh_formations, bh_tracks)
 
     bh_worldlines = {}
     wid_counter = 0
@@ -1103,46 +1327,22 @@ def generate_worldlines(out_loc, verbose=True):
 
     for bh_id, bh_info in bh_collisions.items():
 
-        """
-
-        if isinstance(bh_id, str):
-
-            if bh_id.startswith('X3'):
-                
-                for parent_id, parent_type, parent_mass in zip(
-                    bh_info['parents'],
-                    bh_info['parent_types'],
-                    bh_info['parent_masses']
-                ):
-
-                    if parent_type == 14:
-                        id_rem = parent_id
-                        type_host = parent_type
-                        mass_host = parent_mass
-                    else:
-                        id_merged = parent_id
-                        type_merged = parent_type
-                        mass_merged = parent_mass
-
-                wid_rem = bh_id_to_wid[id_rem]
-
-                bh_worldlines[wid_rem].add_merger(
-                                           time = bh_info['time'],
-                                           partner_id = id_merged,
-                                           partner_type = type_merged,
-                                           partner_mass = mass_merged,
-                                           disrupt = False
-                                       )
-
-                continue
-
-        """
-        
         if not isinstance(bh_id, int):
-            logger.warning(f"Found {bh_id} with parents: {bh_info['parents']} in collisions")
- 
-        if not all(isinstance(x, int) for x in bh_info['parents']):
-            logger.warning(f"Found {bh_id} with parents: {bh_info['parents']} in collisions")
+            if isinstance(bh_id, str) and bh_id.startswith("X"):
+                logger.info(
+                    f"Collision remnant uses synthetic ID {bh_id} with parents {bh_info['parents']}"
+                )
+            else:
+                logger.warning(f"Found {bh_id} with parents: {bh_info['parents']} in collisions")
+
+        non_int_parents = [x for x in bh_info['parents'] if not isinstance(x, int)]
+        if non_int_parents:
+            if all(isinstance(x, str) and x.startswith("X") for x in non_int_parents):
+                logger.info(
+                    f"Collision parents include synthetic IDs {non_int_parents} for remnant {bh_id}"
+                )
+            else:
+                logger.warning(f"Found {bh_id} with parents: {bh_info['parents']} in collisions")
          
 
         ids_collided = []
@@ -1278,11 +1478,32 @@ def generate_worldlines(out_loc, verbose=True):
                                        time = bh_info['time'][nth],
                                        mass = bh_info["mass_rem"][nth],
                                        mass_host = bh_info["mass_host"][nth],
+                                       host_type = bh_info["type_host"][nth],
                                        partner_id = id_merged,
                                        partner_type = bh_info['type_merged'][nth],
                                        partner_mass = bh_info['mass_merged'][nth],
+                                       host_spin = bh_info.get('spin_host', np.full(len(bh_info['time']), np.nan))[nth],
+                                       partner_spin = bh_info.get('spin_merged', np.full(len(bh_info['time']), np.nan))[nth],
                                        disrupt = False
                                    )
+
+            if id_merged not in bh_id_to_wid.keys():
+
+                if isinstance(id_merged, int):
+                    logger.warning(f"{id_merged} (merged partner) not found; creating merger-seeded worldline.")
+
+                wid = wid_counter
+
+                bh_worldlines[wid] = BHWorldLine(
+                                         wid = wid,
+                                         birth_id = id_merged,
+                                         birth_time = bh_info['time'][nth],
+                                         birth_mass = bh_info['mass_merged'][nth]
+                                     )
+
+                bh_id_to_wid[id_merged] = wid
+
+                wid_counter += 1
 
             wid_merged = bh_id_to_wid[id_merged]
                  
@@ -1290,9 +1511,12 @@ def generate_worldlines(out_loc, verbose=True):
                                           time = bh_info['time'][nth],
                                           mass = bh_info['mass_rem'][nth],
                                           mass_host = bh_info['mass_merged'][nth],
+                                          host_type = bh_info['type_merged'][nth],
                                           partner_id = id_rem,
                                           partner_type = bh_info['type_host'][nth],
                                           partner_mass = bh_info['mass_host'][nth],
+                                          host_spin = bh_info.get('spin_merged', np.full(len(bh_info['time']), np.nan))[nth],
+                                          partner_spin = bh_info.get('spin_host', np.full(len(bh_info['time']), np.nan))[nth],
                                           disrupt = True
                                       )       
  
@@ -1306,9 +1530,11 @@ def generate_worldlines(out_loc, verbose=True):
 
             else:
                 
-                if isinstance(id_esc, int):                
+                if isinstance(id_esc, int):
 
-                    logger.warning(f"{id_esc} in escapers doesn't have a wid")
+                    logger.info(
+                        f"{id_esc} in escapers has no prior worldline; creating escape-seeded worldline"
+                    )
               
                     id_esc = 'XE' + str(id_esc)
 
@@ -1336,7 +1562,9 @@ def generate_worldlines(out_loc, verbose=True):
                                    a = bh_info['a'],
                                    e = bh_info['e'],
                                    partner_id = bh_info['companion_id'],
-                                   partner_type = bh_info['companion_type']
+                                   partner_type = bh_info['companion_type'],
+                                   spin = bh_info.get('spin', np.nan),
+                                   partner_spin = bh_info.get('companion_spin', np.nan)
                                )
 
     for bh_id, bh_info in bh_tracks.items():
@@ -1391,7 +1619,7 @@ def generate_worldlines(out_loc, verbose=True):
                                          wid = wid,
                                          birth_id = bh_id,
                                          birth_time = bh_info['time'][0],
-                                         birth_mass = bh_info['mass']
+                                         birth_mass = bh_info['mass'][0]
                                      )
 
                 bh_id_to_wid[bh_id] = wid
@@ -1496,6 +1724,13 @@ def get_all_mergers(bh_worldlines, bh_id_to_wid):
         host_masses = merger_data['host_masses']
         partner_ids = merger_data['partner_ids']
         partner_masses = merger_data['partner_masses']
+        host_spins = merger_data['host_spins']
+        partner_spins = merger_data['partner_spins']
+
+        # Deleting the data that have non black hole in merged or host
+        nonbh_ind = (
+
+        )
 
         esc_data = bhwl.get_escape()
 
@@ -1511,9 +1746,13 @@ def get_all_mergers(bh_worldlines, bh_id_to_wid):
                 partner_id = esc_data['partner_id']
                 partner_wid = bh_id_to_wid[partner_id]
 
-                partner_mass = bh_worldlines[partner_wid].get_escape()['mass']
+                partner_escape = bh_worldlines[partner_wid].get_escape()
+                partner_mass = partner_escape['mass']
 
                 if mass > partner_mass:
+
+                    host_spin = esc_data.get('spin', np.nan)
+                    partner_spin = partner_escape.get('spin', np.nan)
 
                     # Query the line with mass id and partner_id to
                     # get orbit properties.
@@ -1526,6 +1765,8 @@ def get_all_mergers(bh_worldlines, bh_id_to_wid):
                         host_masses.append(mass)
                         partner_ids.append(partner_id)
                         partner_masses.append(partner_mass)
+                        host_spins.append(host_spin)
+                        partner_spins.append(partner_spin)
 
         else:
 
@@ -1564,6 +1805,8 @@ def get_all_mergers(bh_worldlines, bh_id_to_wid):
             'host_masses' : host_masses,
             'partner_wid' : partner_wids,
             'partner_masses' : partner_masses,
+            'host_spins' : host_spins,
+            'partner_spins' : partner_spins,
             'first_accretion_time' : first_accr_time,
             'first_collition_time' : first_coll_time,
             'esc_time' : esc_time
