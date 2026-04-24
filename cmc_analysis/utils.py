@@ -51,7 +51,9 @@ BHFORM_COLS = [
 ]
 
 BHMERG_COLS = [
-    "time", "type", "r", "id1", "id2", "m1", "m2", "spin1", "spin2", "m_final", "spin_final", "v_kick", "v_esc", "a_final", "e_final", "a_50M", "e_50M", "a_100M", "e_100M", "a_500M", "e_500M"]
+    "time", "type", "r", "id1", "id2", "m1", "m2", "spin1", "spin2",
+    "final_id", #--> This column not in old cmc version.
+    "m_final", "spin_final", "v_kick", "v_esc", "a_final", "e_final", "a_50M", "e_50M", "a_100M", "e_100M", "a_500M", "e_500M"]
 
 EVENT_TO_COLOR = {
     "formation" : 'c',
@@ -136,11 +138,13 @@ def read_esc(file_name):
 
     return df
 
-def read_snap(file_name, prefix):
+def read_snap(out_loc, file_name, prefix):
 
     if "t=" in file_name:
 
-        with h5py.File(f"{prefix}.snapshots.h5", 'r') as f:
+        h5_file = os.path.join(out_loc, f"{prefix}.snapshots.h5")
+
+        with h5py.File(h5_file, 'r') as f:
 
             df = pd.DataFrame(f[file_name][:])
             
@@ -180,15 +184,21 @@ def sort_snap(out_loc, prefix):
 
         try:
 
-            with h5py.File(f"{prefix}.snapshots.h5", 'r') as f:
+            h5_file = os.path.join(out_loc, f"{prefix}.snapshots.h5")
+
+            with h5py.File(h5_file, 'r') as f:
 
                 all_snap_files = list(f.keys())
+
+            all_snap_files = sorted(all_snap_files, key=lambda s: int(s.split('(')[0]))
         
         except:
 
             logger.error("No valid snapshots files found")
+    
+    else:
 
-    all_snap_files.sort()
+        all_snap_files.sort()
 
     return all_snap_files
 
@@ -200,7 +210,7 @@ def parse_bh_tracks(out_loc, prefix):
 
     for snap_idx in range(len(sorted_snaps)):
         
-        df = read_snap(sorted_snaps[snap_idx], prefix)
+        df = read_snap(out_loc, sorted_snaps[snap_idx], prefix)
         time = df.attrs['time']
     
         for row in df.itertuples():
