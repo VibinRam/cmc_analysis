@@ -586,7 +586,7 @@ def parse_bh_escapers(out_loc, prefix):
                 xe_col_count += 1
             else:
                 bh_ids.append(int(row.id))
-            masses.append(code_unit_esc_to_MSUN(float(row.m)))
+            masses.append(float(row.m))     #caution: In the older version of cmc, this mass is in code units.
             dmdts.append(0.0)
             binflag.append(0)
             semi_maj.append(None)
@@ -1220,6 +1220,8 @@ class BHWorldLine:
 
     def add_time_mass_graph(self, ax, linestyle='--', write_wid=True):
 
+        text_offset = 0
+
         time_mass = np.array([
                          [event['time'], event['mass']]
                          for event in self.events
@@ -1265,10 +1267,8 @@ class BHWorldLine:
 
             if write_wid == True:
 
-                offset = 0.2
-
                 ax.text(
-                    time_mass_esc[:,0]+offset, time_mass_esc[:,1]+offset, 
+                    time_mass_esc[:,0]+text_offset, time_mass_esc[:,1]+text_offset, 
                     str(self.wid),
                     color='black',
                     fontsize=8,
@@ -1285,10 +1285,8 @@ class BHWorldLine:
         
         if write_wid == True:
 
-            offset = 0.2
-
             ax.text(
-                time_mass_non_esc[-1:,0]+offset, time_mass_non_esc[-1:,1]+offset, 
+                time_mass_non_esc[-1,0]+text_offset, time_mass_non_esc[-1,1]+text_offset, 
                 str(self.wid),
                 color='black',
                 fontsize=8,
