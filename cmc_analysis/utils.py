@@ -98,12 +98,18 @@ def calc_chirp_mass(m1, m2):
 
     return numer/dinom
 
-def calc_effective_spin(m1, m2, s1, s2):
+def calc_effective_spin(m1, m2, a1, a2, ct1, ct2):
 
-    numer = m1*s1 + m2*s2
+    numer = m1*a1*ct1 + m2*a2*ct2
     denom = m1 + m2
 
     return numer/denom
+
+def get_isotropic_tilts():
+
+    s1, s2 = np.random.uniform(-1, 1, 2)
+
+    return s1, s2    
 
 def code_unit_to_myr(time):
     return CODE_TO_MYR * time
@@ -320,6 +326,7 @@ def parse_bh_mergers(out_loc, prefix):
                 id_merged = parents[1]
                 mass_merged = parent_masses[1]
                 type_merged = parent_types[1]
+                id_host = parent_types[0]
                 mass_host = parent_masses[0]
                 type_host = parent_types[0]
 
@@ -328,6 +335,7 @@ def parse_bh_mergers(out_loc, prefix):
                 id_merged = parents[0]
                 mass_merged = parent_masses[0]
                 type_merged = parent_types[0]
+                id_host = parents[1]
                 mass_host = parent_masses[1]
                 type_host = parent_types[1]
 
@@ -344,6 +352,7 @@ def parse_bh_mergers(out_loc, prefix):
                     "id_merged" : [id_merged],
                     "mass_merged" : [mass_merged],
                     "type_merged" : [type_merged],
+                    "id_host" : [id_host],
                     "mass_host" : [mass_host],
                     "type_host" : [type_host]
                 }
@@ -355,6 +364,7 @@ def parse_bh_mergers(out_loc, prefix):
                 bh_mergers[id_rem]["id_merged"].append(id_merged)
                 bh_mergers[id_rem]["mass_merged"].append(mass_merged)
                 bh_mergers[id_rem]["type_merged"].append(type_merged)
+                bh_mergers[id_rem]["id_host"].append(id_host)
                 bh_mergers[id_rem]["mass_host"].append(mass_host)
                 bh_mergers[id_rem]["type_host"].append(type_host)
 
@@ -371,6 +381,8 @@ def parse_bh_mergers(out_loc, prefix):
         n_mergers = len(merger_info["time"])
         merger_info["spin_host"] = np.full(n_mergers, np.nan)
         merger_info["spin_merged"] = np.full(n_mergers, np.nan)
+        merger_info["semi_maj"] = np.full(n_mergers, np.nan)
+        merger_info["eccentricity"] = np.full(n_mergers, np.nan)
 
     unmatched_rows = []
 
@@ -383,6 +395,8 @@ def parse_bh_mergers(out_loc, prefix):
             spin_rem = float(row.spin1)
             spin_merged = float(row.spin2)
             row_time = float(row.time)
+            semi_maj = float(row.a_100M)
+            eccentricity = float(row.e_100M)
 
         elif int(row.id2) in bh_mergers.keys():
 
@@ -391,6 +405,8 @@ def parse_bh_mergers(out_loc, prefix):
             spin_rem = float(row.spin2)
             spin_merged = float(row.spin1)
             row_time = float(row.time)
+            semi_maj = float(row.a_100M)
+            eccentricity = float(row.e_100M)
 
         else:
             unmatched_rows.append(row)
@@ -417,6 +433,10 @@ def parse_bh_mergers(out_loc, prefix):
 
         bh_mergers[id_rem]["spin_merged"][merg_ind] = spin_merged
 
+        bh_mergers[id_rem]["semi_maj"][merg_ind] = semi_maj
+
+        bh_mergers[id_rem]["eccentricity"][merg_ind] = eccentricity
+
     # Add bhmerger-only pairs that are absent from semergedisrupt.
     # For these rows, use the more massive component as host/remnant proxy.
     n_fallback_added = 0
@@ -424,19 +444,25 @@ def parse_bh_mergers(out_loc, prefix):
     for row in unmatched_rows:
 
         if float(row.m1) >= float(row.m2):
-            id_rem = int(row.id1)
+            id_rem = int(row.final_id)
+            id_host = int(row.id1)
             id_merged = int(row.id2)
             mass_host = float(row.m1)
             mass_merged = float(row.m2)
             spin_host = float(row.spin1)
             spin_merged = float(row.spin2)
+            semi_maj = float(row.a_100M)
+            eccentricity = float(row.e_100M)
         else:
-            id_rem = int(row.id2)
+            id_rem = int(row.final_id)
+            id_host = int(row.id2)
             id_merged = int(row.id1)
             mass_host = float(row.m2)
             mass_merged = float(row.m1)
             spin_host = float(row.spin2)
             spin_merged = float(row.spin1)
+            semi_maj = float(row.a_100M)
+            eccentricity = float(row.e_100M)
 
         if id_rem not in bh_mergers:
 
@@ -446,10 +472,13 @@ def parse_bh_mergers(out_loc, prefix):
                 "id_merged": [id_merged],
                 "mass_merged": [mass_merged],
                 "type_merged": [14],
+                "id_host": [id_host],
                 "mass_host": [mass_host],
                 "type_host": [14],
                 "spin_host": np.array([spin_host]),
                 "spin_merged": np.array([spin_merged]),
+                "semi_maj": np.array([semi_maj]),
+                "eccentricity": np.array([eccentricity])
             }
 
         else:
@@ -459,10 +488,13 @@ def parse_bh_mergers(out_loc, prefix):
             bh_mergers[id_rem]["id_merged"].append(id_merged)
             bh_mergers[id_rem]["mass_merged"].append(mass_merged)
             bh_mergers[id_rem]["type_merged"].append(14)
+            bh_mergers[id_rem]["id_host"].append(id_host)
             bh_mergers[id_rem]["mass_host"].append(mass_host)
             bh_mergers[id_rem]["type_host"].append(14)
             bh_mergers[id_rem]["spin_host"] = np.append(bh_mergers[id_rem]["spin_host"], spin_host)
             bh_mergers[id_rem]["spin_merged"] = np.append(bh_mergers[id_rem]["spin_merged"], spin_merged)
+            bh_mergers[id_rem]["semi_maj"] = np.append(bh_mergers[id_rem]["semi_maj"], semi_maj)
+            bh_mergers[id_rem]["eccentricity"] = np.append(bh_mergers[id_rem]["eccentricity"], eccentricity)
 
         n_fallback_added += 1
 
@@ -573,6 +605,24 @@ def parse_bh_escapers(out_loc, prefix):
         semi_maj = []
         eccentr = []
         companion_ids = []
+
+        bh_ids = []
+        masses = []
+        dmdts = []
+        binflag = []
+        semi_maj = []
+        eccentr = []
+        companion_ids = []
+
+    for row in esc_df.itertuples():
+
+        bh_ids = []
+        masses = []
+        dmdts = []
+        binflag = []
+        semi_maj = []
+        eccentr = []
+        companion_ids = []
         companion_types = []
         companion_masses = []
         spins = []
@@ -659,7 +709,9 @@ def parse_bh_formations(out_loc, prefix):
 
     bh_formations_file = os.path.join(out_loc, bh_formations_fname)
 
-    df = pd.read_csv(bh_formations_file, comment='#', sep=r'\s+', engine='python',  header=None,  index_col=None)
+    df = pd.read_csv(bh_formations_file, comment='#', sep=r'\s+', engine='python',  header=None,  index_col=None, on_bad_lines='skip')
+
+    df = df.dropna(thresh=10)
 
     df.columns = BHFORM_COLS
 
@@ -989,12 +1041,15 @@ class BHWorldLine:
             self.active = False
 
     def add_merger(
-            self, time, mass, mass_host,
-            host_type,
+            self, time, mass,
+            id_rem, mass_host,
+            host_type, id_host,
             partner_id,
             partner_type, partner_mass,
             host_spin=np.nan,
             partner_spin=np.nan,
+            semi_maj=np.nan,
+            eccentricity=np.nan,
             disrupt=False
         ):
 
@@ -1005,15 +1060,28 @@ class BHWorldLine:
                     "event" : "merger",
                     "time" : time,
                     "mass" : mass,
+                    "id_rem" : id_rem,
                     "mass_host" : mass_host,
                     "host_type" : host_type,
                     "host_spin" : host_spin,
+                    "id_host" : id_host,
                     "partner_id" : partner_id,
                     "partner_type" : partner_type,
                     "partner_mass" : partner_mass,
-                    "partner_spin" : partner_spin
+                    "partner_spin" : partner_spin,
+                    "semi_maj" : semi_maj,
+                    "eccentricity" : eccentricity
                 }
             )
+
+            if id_rem != self.id_history[-1]["id"]:
+
+                self.id_history.append(
+                    {
+                        "time" : time,
+                        "id" : id_rem
+                    }
+                )	
         
         if disrupt:
 
@@ -1028,7 +1096,8 @@ class BHWorldLine:
             self.active = False
 
     def add_escape(
-            self, time, mass, binflag,
+            self, time, mass, host_id,
+            binflag,
             a, e, partner_id, partner_type,
             spin=np.nan, partner_spin=np.nan):
 
@@ -1037,6 +1106,7 @@ class BHWorldLine:
                 "event" : "escape",
                 "time" : time,
                 "mass" : mass,
+                "host_id" : host_id,
                 "binflag" : binflag,
                 "a" : a,
                 "e" : e,
@@ -1071,11 +1141,15 @@ class BHWorldLine:
     def get_mergers(self, only_bh=False):
 
         times = []
+        rem_ids = []
         host_masses = []
+        host_ids = []
         partner_ids = []
         partner_masses = []
         host_spins = []
         partner_spins = []
+        semi_majs = []
+        eccentricitys = []
 
         for event in self.events:
 
@@ -1088,19 +1162,27 @@ class BHWorldLine:
                         continue
 
                 times.append(event['time'])
+                rem_ids.append(event['id_rem'])
                 host_masses.append(event['mass_host'])
+                host_ids.append(event['id_host'])
                 partner_ids.append(event['partner_id'])
                 partner_masses.append(event['partner_mass'])
                 host_spins.append(event.get('host_spin', np.nan))
                 partner_spins.append(event.get('partner_spin', np.nan))
+                semi_majs.append(event.get('semi_maj', np.nan))
+                eccentricitys.append(event.get('eccentricity', np.nan))
 
         return {
             'times' : times,
+            'rem_ids' : rem_ids,
             'host_masses' : host_masses,
+            'host_ids' : host_ids,
             'partner_ids' : partner_ids,
             'partner_masses' : partner_masses,
             'host_spins' : host_spins,
-            'partner_spins' : partner_spins
+            'partner_spins' : partner_spins,
+            'semi_majs' : semi_majs,
+            'eccentricitys' : eccentricitys,
         }
     
     def get_collisions(self, only_bh=False):
@@ -1158,6 +1240,7 @@ class BHWorldLine:
                 return {
                     'time' : event['time'],
                     'mass' : event['mass'],
+                    'host_id' : event['host_id'],
                     'binflag' : event['binflag'],
                     'a' : event['a'],
                     'e' : event['e'],
@@ -1439,7 +1522,13 @@ def generate_worldlines(out_loc, verbose=True):
 
         if id_rem not in bh_id_to_wid.keys():
 
-            if 'XC' + str(id_rem) in bh_id_to_wid.keys():
+            if bh_info["id_host"][0] in bh_id_to_wid.keys():
+            
+                wid_rem = bh_id_to_wid[bh_info["id_host"][0]]
+
+                bh_id_to_wid[id_rem] = wid_rem
+
+            elif 'XC' + str(id_rem) in bh_id_to_wid.keys():
 
                 id_rem = 'XC' + str(id_rem)
 
@@ -1476,22 +1565,29 @@ def generate_worldlines(out_loc, verbose=True):
 
                 bh_id_to_wid[id_rem] = wid
 
+                wid_rem = wid
+
                 wid_counter += 1
         
-        wid_rem = bh_id_to_wid[id_rem]
+        else:
+            wid_rem = bh_id_to_wid[id_rem]
 
         for nth, id_merged in enumerate(bh_info['id_merged']):
 
             bh_worldlines[wid_rem].add_merger(
                                        time = bh_info['time'][nth],
                                        mass = bh_info["mass_rem"][nth],
+                                       id_rem = id_rem,
                                        mass_host = bh_info["mass_host"][nth],
+                                       id_host = bh_info["id_host"][nth],
                                        host_type = bh_info["type_host"][nth],
                                        partner_id = id_merged,
                                        partner_type = bh_info['type_merged'][nth],
                                        partner_mass = bh_info['mass_merged'][nth],
                                        host_spin = bh_info.get('spin_host', np.full(len(bh_info['time']), np.nan))[nth],
                                        partner_spin = bh_info.get('spin_merged', np.full(len(bh_info['time']), np.nan))[nth],
+                                       semi_maj = bh_info.get('semi_maj', np.full(len(bh_info['time']), np.nan))[nth],
+                                       eccentricity = bh_info.get('eccentricity', np.full(len(bh_info['time']), np.nan))[nth],
                                        disrupt = False
                                    )
 
@@ -1518,9 +1614,11 @@ def generate_worldlines(out_loc, verbose=True):
             bh_worldlines[wid_merged].add_merger(
                                           time = bh_info['time'][nth],
                                           mass = bh_info['mass_rem'][nth],
+                                          id_rem = id_rem,
                                           mass_host = bh_info['mass_merged'][nth],
+                                          id_host = id_merged,
                                           host_type = bh_info['type_merged'][nth],
-                                          partner_id = id_rem,
+                                          partner_id = bh_info["id_host"][nth],
                                           partner_type = bh_info['type_host'][nth],
                                           partner_mass = bh_info['mass_host'][nth],
                                           host_spin = bh_info.get('spin_merged', np.full(len(bh_info['time']), np.nan))[nth],
@@ -1565,6 +1663,7 @@ def generate_worldlines(out_loc, verbose=True):
 
         bh_worldlines[wid_esc].add_escape(
                                    time = bh_info['time'],
+                                   host_id = id_esc,
                                    mass = bh_info['mass'],
                                    binflag = bh_info['binflag'],
                                    a = bh_info['a'],
@@ -1718,7 +1817,7 @@ def get_all_related_wid(current_wid, bh_worldlines, bh_id_to_wid, visited=None):
 
     return visited
 
-def get_all_mergers(bh_worldlines, bh_id_to_wid):
+def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
 
     wid_of_mergers = {}
 
@@ -1729,16 +1828,15 @@ def get_all_mergers(bh_worldlines, bh_id_to_wid):
         merger_data = bhwl.get_mergers(only_bh=True)
 
         times = merger_data['times']
+        rem_ids = merger_data['rem_ids']
         host_masses = merger_data['host_masses']
+        host_ids = merger_data['host_ids']
         partner_ids = merger_data['partner_ids']
         partner_masses = merger_data['partner_masses']
         host_spins = merger_data['host_spins']
         partner_spins = merger_data['partner_spins']
-
-        # Deleting the data that have non black hole in merged or host
-        nonbh_ind = (
-
-        )
+        semi_majs = merger_data['semi_majs']
+        eccentricitys = merger_data['eccentricitys']
 
         esc_data = bhwl.get_escape()
 
@@ -1751,6 +1849,7 @@ def get_all_mergers(bh_worldlines, bh_id_to_wid):
                 mass = esc_data['mass']
                 a = esc_data['a']
                 e = esc_data['e']
+                host_id = esc_data['host_id']
                 partner_id = esc_data['partner_id']
                 partner_wid = bh_id_to_wid[partner_id]
 
@@ -1770,11 +1869,15 @@ def get_all_mergers(bh_worldlines, bh_id_to_wid):
                     if merg_time < myr_to_code_unit(AGE_OF_UNIV):
 
                         times.append(merg_time)
+                        rem_ids.append(host_id)
                         host_masses.append(mass)
+                        host_ids.append(host_id)
                         partner_ids.append(partner_id)
                         partner_masses.append(partner_mass)
                         host_spins.append(host_spin)
                         partner_spins.append(partner_spin)
+                        semi_majs.append(a)
+                        eccentricitys.append(e)
 
         else:
 
@@ -1817,7 +1920,9 @@ def get_all_mergers(bh_worldlines, bh_id_to_wid):
             'partner_spins' : partner_spins,
             'first_accretion_time' : first_accr_time,
             'first_collition_time' : first_coll_time,
-            'esc_time' : esc_time
+            'esc_time' : esc_time,
+            'semi_majs' : semi_majs,
+            'eccentricitys' : eccentricitys
         }
 
     for wid in wid_of_mergers:
@@ -1850,39 +1955,39 @@ def get_all_mergers(bh_worldlines, bh_id_to_wid):
 
                 merger_str.add('1G')
 
-                if (
-                    (wid_of_mergers[wid]['first_accretion_time']
-                        > 0)
-                    and
-                    (wid_of_mergers[wid]['first_accretion_time']
-                        < time)
-                ):
+            if (
+                (wid_of_mergers[wid]['first_accretion_time']
+                    > 0)
+                and
+                (wid_of_mergers[wid]['first_accretion_time']
+                    < time)
+            ):
                     
-                    merger_str.add('A')
+                merger_str.add('A')
 
-                elif any(
-                    event['event'] == 'accretion'
-                    for event in bh_worldlines[partner_wid].events
-                    ):
-
-                    merger_str.add('A')
-
-                if (
-                    (wid_of_mergers[wid]['first_collition_time']
-                        > 0)
-                    and
-                    (wid_of_mergers[wid]['first_collition_time']
-                        < time)
+            elif any(
+                event['event'] == 'accretion'
+                for event in bh_worldlines[partner_wid].events
                 ):
+
+                merger_str.add('A')
+
+            if (
+                (wid_of_mergers[wid]['first_collition_time']
+                    > 0)
+                and
+                (wid_of_mergers[wid]['first_collition_time']
+                    < time)
+            ):
                     
-                    merger_str.add('C')
+                merger_str.add('C')
 
-                elif any(
-                    event['event'] == 'collition'
-                    for event in bh_worldlines[partner_wid].events
-                    ):
+            elif any(
+                event['event'] == 'collition'
+                for event in bh_worldlines[partner_wid].events
+                ):
 
-                    merger_str.add('C')
+                merger_str.add('C')
 
             wid_of_mergers[wid]['merger_types'].append(
                 "".join(x for x in sorted(merger_str))
@@ -1892,7 +1997,26 @@ def get_all_mergers(bh_worldlines, bh_id_to_wid):
         del wid_of_mergers[wid]['first_collition_time']
         del wid_of_mergers[wid]['esc_time']
 
+    with open(os.path.join(out_loc, "all_mergers.pkl"), 'wb') as f:
+        pickle.dump(wid_of_mergers, f, protocol=pickle.HIGHEST_PROTOCOL)
+
     return wid_of_mergers
+
+def load_all_mergers(out_loc):
+
+    all_mergers_file = os.path.join(out_loc, "all_mergers.pkl")
+
+    try:
+
+        with open(all_mergers_file, 'rb') as f:
+            all_mergers = pickle.load(f)
+
+    except FileNotFoundError:
+
+        logger.error("File \"all_mergers.pkl\" not found. Try get_all_mergers()")
+        raise
+
+    return all_mergers
 
 if __name__ == "__main__":
 

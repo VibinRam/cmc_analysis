@@ -9,6 +9,8 @@ def plot_bh_worldlines(
         linestyle='--',
         write_wid=False,
         add_all_related=False,
+        save_fig=True,
+        save_file="test_plot.pdf",
         **kwargs,
         ):
     
@@ -56,22 +58,34 @@ def plot_bh_worldlines(
     ax.set_ylabel(r'mass ($M_\odot$)')
     ax.legend(fontsize=8)
     ax.set(**kwargs)
-
-    print(f"Plotted world lines {wids}")
         
-    fig.savefig('test_plot.pdf')
+    fig.savefig(save_file)
+
+    print(f"Plotted world lines {wids} to {save_file}")
 
     return ax
         
 def plot_bh_mergers(all_mergers):
 
-    fig, ax = plt.subplots()
+    fig = plt.figure(figsize=(8,6))
 
-    fig2, ax2 = plt.subplots()
+    gs = fig.add_gridspec(1, 2, width_ratios=[10, 1], wspace=0)
+
+    ax = fig.add_subplot(gs[0])        # main plot
+    ax_right = fig.add_subplot(gs[1], sharey=ax)  # histogram
+
+    fig2 = plt.figure(figsize=(8,6))
+    gs2 = fig2.add_gridspec(1, 2, width_ratios=[10, 1], wspace=0)
+    ax2 = fig2.add_subplot(gs2[0])
+    ax2_right = fig2.add_subplot(gs2[1])
 
     fig3, ax3 = plt.subplots()
+    fig4, ax4 = plt.subplots()
 
     mass_ratio_list = []
+    hg_mergers = []
+    g1_spec_mergers = []
+    g1_mergers = []
 
     for wid, merger_info in all_mergers.items():
 
@@ -85,14 +99,31 @@ def plot_bh_mergers(all_mergers):
 
             merger_type = merger_info['merger_types'][nth]
 
-            if 'HG' in merger_type:
-                color = 'red'
-            elif ('A' in merger_type) or ('C' in merger_type):
-                color = 'blue'
-            else:
-                color = 'black'
+            host_spin = merger_info['host_spins'][nth]
+
+            partner_spin = merger_info['partner_spins'][nth]
+
+            cos_tilt_1, cos_tilt_2 = get_isotropic_tilts()
+
+            effective_spin = calc_effective_spin(
+                        host_mass, partner_mass, 
+                        host_spin, partner_spin,
+                        cos_tilt_1, cos_tilt_2) 
 
             chirp_mass = calc_chirp_mass(host_mass, partner_mass)
+
+            semi_maj = merger_info['semi_majs'][nth]
+            eccentricity = merger_info['eccentricitys'][nth]
+
+            if 'HG' in merger_type:
+                color = 'red'
+                hg_mergers.append([time, chirp_mass])
+            elif ('A' in merger_type) or ('C' in merger_type):
+                color = 'blue'
+                g1_spec_mergers.append([time, chirp_mass])
+            else:
+                color = 'black'
+                g1_mergers.append([time, chirp_mass])
             
             if host_mass > partner_mass:
                 mass_ratio = partner_mass/host_mass
@@ -103,12 +134,18 @@ def plot_bh_mergers(all_mergers):
 
             ax.scatter(time, chirp_mass, color=color, s=5)
             ax2.scatter(chirp_mass, mass_ratio, color=color, s=5)
+            ax3.scatter(chirp_mass, effective_spin, color=color, s=5)
+            ax4.scatter(chirp_mass, eccentricity, color=color, s=5)
 
             if 'E' in merger_type:
                 ax.scatter(time, chirp_mass, facecolors='none',
                            edgecolors='pink')
                 ax2.scatter(chirp_mass, mass_ratio, facecolors='none',
-                            edgecolors='pink')
+                           edgecolors='pink')
+                ax3.scatter(chirp_mass, effective_spin, facecolors='none',
+                           edgecolors='pink')
+                ax4.scatter(chirp_mass, eccentricity, facecolors='none',
+                           edgecolors='pink')
 
     ax.scatter([], [], color='red', label="Higher Gen")
     ax.scatter([], [], color='blue', label="1G special")
@@ -117,6 +154,21 @@ def plot_bh_mergers(all_mergers):
                label='Escape merger')
     ax.set_xlabel('time (code unit)')
     ax.set_ylabel(r'chirp mass ($M_\odot$)')
+
+    ax.hist(list(zip(*hg_mergers))[0], bins=20, color='red', histtype='step')
+    ax.hist(list(zip(*g1_spec_mergers))[0], bins=20, color='blue', histtype='step')
+    ax.hist(list(zip(*g1_mergers))[0], bins=20, color='black', histtype='step')
+
+    ax_right.hist(list(zip(*hg_mergers))[1], bins=20, color='red', histtype='step', orientation='horizontal')
+    ax_right.hist(list(zip(*g1_spec_mergers))[1], bins=20, color='blue', histtype='step', orientation='horizontal')
+    ax_right.hist(list(zip(*g1_mergers))[1], bins=20, color='black', histtype='step', orientation='horizontal')
+
+    ax_right.spines['left'].set_visible(False)
+    ax_right.spines['top'].set_visible(False)
+    ax_right.spines['bottom'].set_visible(False)
+    ax_right.spines['right'].set_visible(False)
+    ax_right.xaxis.set_visible(False)
+    ax_right.yaxis.set_visible(False)
     ax.legend(fontsize=8)
 
     ax2.scatter([], [], color='red', label="Higher Gen")
@@ -124,33 +176,42 @@ def plot_bh_mergers(all_mergers):
     ax2.scatter([], [], color='black', label="1G")
     ax2.scatter([], [], facecolors='none', edgecolors='pink', 
                label='Escape merger')
+
+    ax2_right.hist(mass_ratio_list, bins=20, histtype='step', orientation='horizontal')
+
+    ax2_right.spines['left'].set_visible(False)
+    ax2_right.spines['top'].set_visible(False)
+    ax2_right.spines['bottom'].set_visible(False)
+    ax2_right.spines['right'].set_visible(False)
+    ax2_right.xaxis.set_visible(False)
+    ax2_right.yaxis.set_visible(False)
+    
     ax2.set_xlabel(r'chirp mass ($M_\odot$)')
     ax2.set_ylabel('mass ratio')
     ax2.legend(fontsize=8)
 
-    # Create histogram
-    hist, bin_edges = np.histogram(mass_ratio_list, bins=30, density=True)
-    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    ax3.scatter([], [], color='red', label="Higher Gen")
+    ax3.scatter([], [], color='blue', label="1G special")
+    ax3.scatter([], [], color='black', label="1G")
+    ax3.scatter([], [], facecolors='none', edgecolors='pink',
+               label='Escape merger')    
 
-    # Gaussian function
-    def gaussian(x, amp, mu, sigma):
-        return amp * np.exp(-(x - mu)**2 / (2 * sigma**2))
-
-    # Fit
-    popt, _ = scp.curve_fit(gaussian, bin_centers, hist)
-
-    ax3.hist(mass_ratio_list, bins=50, density=True, alpha=0.6)
-    ax3.plot(
-        bin_centers, gaussian(bin_centers, *popt), 'r-', lw=2,
-        label="Median : " + str(np.round(np.median(mass_ratio_list),2))
-        )
-
-    ax3.set_xlabel("mass ratio")
-    ax3.set_ylabel("Number per mass ratio")
+    ax3.set_xlabel('chirp mass')
+    ax3.set_ylabel("Effective spin")
     ax3.legend()
+
+    ax4.scatter([], [], color='red', label="Higher Gen")
+    ax4.scatter([], [], color='blue', label="1G special")
+    ax4.scatter([], [], color='black', label="1G")
+    ax4.scatter([], [], facecolors='none', edgecolors='pink',
+               label='Escape merger')
+    ax4.set_xlabel('chirp mass')
+    ax4.set_ylabel('eccentricity')  
+    ax4.legend()  
 
     fig.savefig('merger_plot.pdf')
     fig2.savefig('merger_plot2.pdf')
-    fig3.savefig('mass_ratio_peak.pdf')
+    fig3.savefig('merger_plot3.pdf')
+    fig4.savefig('merger_plot4.pdf')
 
     return ax
