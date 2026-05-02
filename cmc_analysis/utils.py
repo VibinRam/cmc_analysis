@@ -10,7 +10,8 @@ from matplotlib.collections import LineCollection
 import h5py
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
+logger.setLevel(logging.WARNING)
 
 SNAP_COLS = [
     "id", "m", "r", "vr", "vt", "E", "J", "binflag",
@@ -300,7 +301,7 @@ def parse_bh_mergers(out_loc, prefix):
             if "disruptboth" in line:
                 continue
 
-            time = float(line.split()[0].split("=")[1])
+            log_time = float(line.split()[0].split("=")[1])
             id_rem = int(re.search(r'idr=(\d+)', line).group(1))
             mass_rem = float(re.search(r'mr=([0-9.Ee+-]+)', line).group(1))
             rem_type = int(re.search(r'typer=(\d+)', line).group(1))
@@ -347,7 +348,7 @@ def parse_bh_mergers(out_loc, prefix):
             if id_rem not in bh_mergers:
 
                 bh_mergers[id_rem] = {
-                    "time" : [time],
+                    "time" : [log_time],
                     "mass_rem" : [mass_rem],
                     "id_merged" : [id_merged],
                     "mass_merged" : [mass_merged],
@@ -359,7 +360,7 @@ def parse_bh_mergers(out_loc, prefix):
 
             else:
 
-                bh_mergers[id_rem]["time"].append(time)
+                bh_mergers[id_rem]["time"].append(log_time)
                 bh_mergers[id_rem]["mass_rem"].append(mass_rem)
                 bh_mergers[id_rem]["id_merged"].append(id_merged)
                 bh_mergers[id_rem]["mass_merged"].append(mass_merged)
@@ -430,6 +431,10 @@ def parse_bh_mergers(out_loc, prefix):
         )
 
         bh_mergers[id_rem]["spin_host"][merg_ind] = spin_rem
+
+        # Prefer the higher-precision timestamp from bhmerger.dat over the
+        # truncated timestamp embedded in semergedisrupt.log.
+        bh_mergers[id_rem]["time"][merg_ind] = row_time
 
         bh_mergers[id_rem]["spin_merged"][merg_ind] = spin_merged
 
@@ -592,27 +597,7 @@ def parse_bh_escapers(out_loc, prefix):
 
     bh_escapers = {}
 
-    xe_col_pre = 'XE'
-
     xe_col_count = 0
-
-    for row in esc_df.itertuples():
-
-        bh_ids = []
-        masses = []
-        dmdts = []
-        binflag = []
-        semi_maj = []
-        eccentr = []
-        companion_ids = []
-
-        bh_ids = []
-        masses = []
-        dmdts = []
-        binflag = []
-        semi_maj = []
-        eccentr = []
-        companion_ids = []
 
     for row in esc_df.itertuples():
 
@@ -735,22 +720,6 @@ def parse_bh_formations(out_loc, prefix):
 
     return bh_formations
 
-def parse_bh_mergers_2(out_loc, prefix):
-
-    merger_fname = f"{prefix}.bhmerger.dat"
-
-    merger_file = os.path.join(out_loc, merger_fname)
-
-    merger_df = pd.read_csv(merger_file, comment='#', sep=r'\s+', engine='python',  header=None,  index_col=None)
-
-    merger_df.columns = BHMERG_COLS
-
-    bh_mergers = {}
-
-    for row in merger_df.itertuples():
-
-        bh_mergers[int(row.ID)]
-
 def parse_snap_times(out_loc, prefix):
 
     sorted_snaps = sort_snap(out_loc, prefix)
@@ -777,10 +746,9 @@ def parse_snap_times(out_loc, prefix):
 
         snap_times[snap_idx] = time
 
-    snap_to_time = snap_times
     time_to_snap = {v: k for k, v in snap_times.items()}
 
-    return snap_to_time, time_to_snap
+    return snap_times, time_to_snap
 
 def load_bh_tracks(out_loc):
 
@@ -825,7 +793,7 @@ def load_bh_mergers(out_loc):
 
     except FileNotFoundError:
 
-        logger.error("Error: file \"bh_mergers.pkl\" not found. Try parse_bh_collisions()")
+        logger.error("Error: file \"bh_mergers.pkl\" not found. Try parse_bh_mergers()")
         raise
 
     return bh_mergers
@@ -1391,11 +1359,12 @@ def generate_worldlines(out_loc, verbose=True):
     except FileNotFoundError:
         logger.warning("No bh_formations.pkl found, using tracks fallback only.")
         bh_formations = {}
+    bh_formations = load_bh_formations(out_loc)
     bh_collisions = load_bh_collisions(out_loc)
     bh_mergers = load_bh_mergers(out_loc)
     bh_escapers = load_bh_escapers(out_loc)
     bh_tracks = load_bh_tracks(out_loc)
-    bh_formations = augment_formations_with_tracks(bh_formations, bh_tracks)
+    # bh_formations = augment_formations_with_tracks(bh_formations, bh_tracks)
 
     bh_worldlines = {}
     wid_counter = 0
@@ -1626,6 +1595,7 @@ def generate_worldlines(out_loc, verbose=True):
                                           disrupt = True
                                       )       
  
+    escape_escapers = 0
     for id_esc, bh_info in bh_escapers.items():
         
         if id_esc not in bh_id_to_wid.keys():
@@ -1658,6 +1628,7 @@ def generate_worldlines(out_loc, verbose=True):
                 bh_id_to_wid[id_esc] = wid
 
                 wid_counter += 1
+                escape_escapers += 1
 
         wid_esc = bh_id_to_wid[id_esc]
 
@@ -1673,6 +1644,10 @@ def generate_worldlines(out_loc, verbose=True):
                                    spin = bh_info.get('spin', np.nan),
                                    partner_spin = bh_info.get('companion_spin', np.nan)
                                )
+        
+    logger.warning(
+        f"{escape_escapers} in escapers has no prior worldline; created escape-seeded worldlines"
+            )
 
     for bh_id, bh_info in bh_tracks.items():
 
@@ -1817,6 +1792,13 @@ def get_all_related_wid(current_wid, bh_worldlines, bh_id_to_wid, visited=None):
 
     return visited
 
+def get_wid_from_id(bh_id, bh_id_to_wid):
+
+    if bh_id in bh_id_to_wid.keys():
+        return bh_id_to_wid[bh_id]
+    if 'XE' + str(bh_id) in bh_id_to_wid.keys():
+        return bh_id_to_wid['XE' + str(bh_id)]
+
 def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
 
     wid_of_mergers = {}
@@ -1851,7 +1833,7 @@ def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
                 e = esc_data['e']
                 host_id = esc_data['host_id']
                 partner_id = esc_data['partner_id']
-                partner_wid = bh_id_to_wid[partner_id]
+                partner_wid = get_wid_from_id(partner_id, bh_id_to_wid)
 
                 partner_escape = bh_worldlines[partner_wid].get_escape()
                 partner_mass = partner_escape['mass']
@@ -1890,7 +1872,7 @@ def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
             continue
 
         partner_wids = list({
-            bh_id_to_wid[partner_id]
+            get_wid_from_id(partner_id, bh_id_to_wid)
             for partner_id in partner_ids
         })
 
@@ -1919,7 +1901,7 @@ def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
             'host_spins' : host_spins,
             'partner_spins' : partner_spins,
             'first_accretion_time' : first_accr_time,
-            'first_collition_time' : first_coll_time,
+            'first_collision_time' : first_coll_time,
             'esc_time' : esc_time,
             'semi_majs' : semi_majs,
             'eccentricitys' : eccentricitys
@@ -1973,17 +1955,17 @@ def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
                 merger_str.add('A')
 
             if (
-                (wid_of_mergers[wid]['first_collition_time']
+                (wid_of_mergers[wid]['first_collision_time']
                     > 0)
                 and
-                (wid_of_mergers[wid]['first_collition_time']
+                (wid_of_mergers[wid]['first_collision_time']
                     < time)
             ):
                     
                 merger_str.add('C')
 
             elif any(
-                event['event'] == 'collition'
+                event['event'] == 'collision'
                 for event in bh_worldlines[partner_wid].events
                 ):
 
@@ -1994,7 +1976,7 @@ def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
                 )
 
         del wid_of_mergers[wid]['first_accretion_time']
-        del wid_of_mergers[wid]['first_collition_time']
+        del wid_of_mergers[wid]['first_collision_time']
         del wid_of_mergers[wid]['esc_time']
 
     with open(os.path.join(out_loc, "all_mergers.pkl"), 'wb') as f:
