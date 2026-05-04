@@ -327,7 +327,7 @@ def parse_bh_mergers(out_loc, prefix):
                 id_merged = parents[1]
                 mass_merged = parent_masses[1]
                 type_merged = parent_types[1]
-                id_host = parent_types[0]
+                id_host = parents[0]
                 mass_host = parent_masses[0]
                 type_host = parent_types[0]
 
@@ -1766,6 +1766,15 @@ def load_bh_worldlines(out_loc):
         raise
 
     return bh_worldlines, bh_id_to_wid
+
+def invert_bh_id_map(bh_id_to_wid, sort_ids=False):
+    wid_to_bh_ids = {}
+    for bh_id, wid in bh_id_to_wid.items():
+        wid_to_bh_ids.setdefault(wid, []).append(bh_id)
+    if sort_ids:
+        for wid in wid_to_bh_ids:
+            wid_to_bh_ids[wid].sort(key=lambda x: (isinstance(x, str), str(x)))
+    return wid_to_bh_ids
 
 def get_all_related_wid(current_wid, bh_worldlines, bh_id_to_wid, visited=None):
 
