@@ -555,11 +555,19 @@ def parse_bh_collisions(out_loc, prefix):
             id_rem = int(re.search(r'idm=(\d+)', line).group(1))
             mass_rem = float(re.search(r'mm=([0-9.Ee+-]+)', line).group(1))
             rem_type = int(re.search(r'typem=(\d+)', line).group(1))
-            impact_par = float(re.search(r'b\[RSUN\]=([0-9.Ee+-]+)', line).group(1))
-            V_inf = float(re.search(r'vinf\[km/s\]=([0-9.Ee+-]+)', line).group(1))
 
             if rem_type != 14:
                 continue
+
+            impact_par_match = re.search(r'b\[RSUN\]=([0-9.Ee+-]+)', line).group(1)
+            V_inf_match = re.search(r'vinf\[km/s\]=([0-9.Ee+-]+)', line).group(1)
+
+            if not impact_par_match or not V_inf_match:
+                impact_par = np.nan
+                V_inf = np.nan
+            else:
+                impact_par = float(impact_par_match.group(1))
+                V_inf = float(V_inf_match.group(1))
 
             parents = []
             parent_masses = []
