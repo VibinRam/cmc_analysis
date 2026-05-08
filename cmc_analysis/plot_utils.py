@@ -84,7 +84,8 @@ def plot_bh_mergers(all_mergers):
 
     mass_ratio_list = []
     hg_mergers = []
-    g1_spec_mergers = []
+    g1_AS_mergers = []
+    g1_AD_mergers = []
     g1_mergers = []
 
     for wid, merger_info in all_mergers.items():
@@ -115,15 +116,23 @@ def plot_bh_mergers(all_mergers):
             semi_maj = merger_info['semi_majs'][nth]
             eccentricity = merger_info['eccentricitys'][nth]
 
+            marker = 'o'
+
             if 'HG' in merger_type:
                 color = 'red'
                 hg_mergers.append([time, chirp_mass])
-            elif ('A' in merger_type) or ('C' in merger_type):
+            elif ('AS' in merger_type):
                 color = 'blue'
-                g1_spec_mergers.append([time, chirp_mass])
+                g1_AS_mergers.append([time, chirp_mass])
+            elif ('AD' in merger_type):
+                color = 'orange'
+                g1_AD_mergers.append([time, chirp_mass])
             else:
                 color = 'green'
                 g1_mergers.append([time, chirp_mass])
+
+            if 'C' in merger_type:
+                marker = '^'    
             
             if host_mass > partner_mass:
                 mass_ratio = partner_mass/host_mass
@@ -132,10 +141,10 @@ def plot_bh_mergers(all_mergers):
 
             mass_ratio_list.append(mass_ratio)
 
-            ax.scatter(time, chirp_mass, color=color, s=5)
-            ax2.scatter(chirp_mass, mass_ratio, color=color, s=5)
-            ax3.scatter(chirp_mass, effective_spin, color=color, s=5)
-            ax4.scatter(chirp_mass, eccentricity, color=color, s=5)
+            ax.scatter(time, chirp_mass, marker=marker, color=color, s=5)
+            ax2.scatter(chirp_mass, mass_ratio, marker=marker, color=color, s=5)
+            ax3.scatter(chirp_mass, effective_spin, marker=marker, color=color, s=5)
+            ax4.scatter(chirp_mass, eccentricity, marker=marker, color=color, s=5)
 
             if 'E' in merger_type:
                 ax.scatter(time, chirp_mass, facecolors='none',
@@ -148,20 +157,31 @@ def plot_bh_mergers(all_mergers):
                            edgecolors='pink')
 
     ax.scatter([], [], color='red', label="Higher Gen")
-    ax.scatter([], [], color='blue', label="1G special")
+    ax.scatter([], [], color='blue', label="1G Accr Same")
+    ax.scatter([], [], color='orange', label="1G Accr Diff")
     ax.scatter([], [], color='green', label="1G")
     ax.scatter([], [], facecolors='none', edgecolors='pink', 
                label='Escape merger')
     ax.set_xlabel('time (code unit)')
     ax.set_ylabel(r'chirp mass ($M_\odot$)')
 
-    ax.hist(list(zip(*hg_mergers))[0], bins=20, color='red', histtype='step')
-    ax.hist(list(zip(*g1_spec_mergers))[0], bins=20, color='blue', histtype='step')
-    ax.hist(list(zip(*g1_mergers))[0], bins=20, color='green', histtype='step')
+    if hg_mergers:
+        ax.hist(list(zip(*hg_mergers))[0], bins=20, color='red', histtype='step')
+    if g1_AS_mergers:
+        ax.hist(list(zip(*g1_AS_mergers))[0], bins=20, color='blue', histtype='step')
+    if g1_AD_mergers:
+        ax.hist(list(zip(*g1_AD_mergers))[0], bins=20, color='orange', histtype='step')
+    if g1_mergers:
+        ax.hist(list(zip(*g1_mergers))[0], bins=20, color='green', histtype='step')
 
-    ax_right.hist(list(zip(*hg_mergers))[1], bins=20, color='red', histtype='step', orientation='horizontal')
-    ax_right.hist(list(zip(*g1_spec_mergers))[1], bins=20, color='blue', histtype='step', orientation='horizontal')
-    ax_right.hist(list(zip(*g1_mergers))[1], bins=20, color='green', histtype='step', orientation='horizontal')
+    if hg_mergers:
+        ax_right.hist(list(zip(*hg_mergers))[1], bins=20, color='red', histtype='step', orientation='horizontal')
+    if g1_AS_mergers:
+        ax_right.hist(list(zip(*g1_AS_mergers))[1], bins=20, color='blue', histtype='step', orientation='horizontal')
+    if g1_AD_mergers:
+        ax_right.hist(list(zip(*g1_AD_mergers))[1], bins=20, color='orange', histtype='step', orientation='horizontal')
+    if g1_mergers:
+        ax_right.hist(list(zip(*g1_mergers))[1], bins=20, color='green', histtype='step', orientation='horizontal')
 
     ax_right.spines['left'].set_visible(False)
     ax_right.spines['top'].set_visible(False)
@@ -172,7 +192,8 @@ def plot_bh_mergers(all_mergers):
     ax.legend(fontsize=8)
 
     ax2.scatter([], [], color='red', label="Higher Gen")
-    ax2.scatter([], [], color='blue', label="1G special")
+    ax2.scatter([], [], color='blue', label="1G Accr Same")
+    ax2.scatter([], [], color='orange', label="1G Accr Diff")
     ax2.scatter([], [], color='green', label="1G")
     ax2.scatter([], [], facecolors='none', edgecolors='pink', 
                label='Escape merger')
@@ -191,7 +212,8 @@ def plot_bh_mergers(all_mergers):
     ax2.legend(fontsize=8)
 
     ax3.scatter([], [], color='red', label="Higher Gen")
-    ax3.scatter([], [], color='blue', label="1G special")
+    ax3.scatter([], [], color='blue', label="1G Accr Same")
+    ax3.scatter([], [], color='orange', label="1G Accr Diff")
     ax3.scatter([], [], color='green', label="1G")
     ax3.scatter([], [], facecolors='none', edgecolors='pink',
                label='Escape merger')    
@@ -201,7 +223,8 @@ def plot_bh_mergers(all_mergers):
     ax3.legend()
 
     ax4.scatter([], [], color='red', label="Higher Gen")
-    ax4.scatter([], [], color='blue', label="1G special")
+    ax4.scatter([], [], color='blue', label="1G Accr Same")
+    ax4.scatter([], [], color='orange', label="1G Accr Diff")
     ax4.scatter([], [], color='green', label="1G")
     ax4.scatter([], [], facecolors='none', edgecolors='pink',
                label='Escape merger')

@@ -8,6 +8,7 @@ import pickle
 import logging
 from matplotlib.collections import LineCollection
 import h5py
+import astropy.constants as astropy_const
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
@@ -111,6 +112,12 @@ def get_isotropic_tilts():
     s1, s2 = np.random.uniform(-1, 1, 2)
 
     return s1, s2    
+
+def l_isco_non_spinning(m_bh):
+
+    m_bh_si = m_bh * astropy_const.M_sun.value #in kg
+
+    return np.sqrt(12) * astropy_const.G.value * m_bh_si /astropy_const.c.value
 
 def code_unit_to_myr(time):
     return CODE_TO_MYR * time
@@ -548,6 +555,8 @@ def parse_bh_collisions(out_loc, prefix):
             id_rem = int(re.search(r'idm=(\d+)', line).group(1))
             mass_rem = float(re.search(r'mm=([0-9.Ee+-]+)', line).group(1))
             rem_type = int(re.search(r'typem=(\d+)', line).group(1))
+            impact_par = float(re.search(r'b\[RSUN\]=([0-9.Ee+-]+)', line).group(1))
+            V_inf = float(re.search(r'vinf\[km/s\]=([0-9.Ee+-]+)', line).group(1))
 
             if rem_type != 14:
                 continue
@@ -579,7 +588,9 @@ def parse_bh_collisions(out_loc, prefix):
                 "mass_rem" : mass_rem,
                 "parents" : parents,
                 "parent_masses" : parent_masses,
-                "parent_types" : parent_types
+                "parent_types" : parent_types,
+                "impact_par" : impact_par,
+                "V_inf" : V_inf
             }
 
     with open(os.path.join(out_loc, "bh_collisions.pkl"), 'wb') as f:
@@ -1218,7 +1229,7 @@ class BHWorldLine:
                     'partner_spin' : event.get('partner_spin', np.nan)
                 }
             
-        return None
+        return {}
             
     def get_id_at_time(self, time_query):
 
@@ -1645,6 +1656,61 @@ def generate_worldlines(out_loc, verbose=True):
                                    partner_spin = bh_info.get('companion_spin', np.nan)
                                )
         
+        esc_time = bh_info['time']
+        a = bh_info['a']
+        e = bh_info['e']
+        mass = bh_info['mass']
+        partner_id = bh_info['companion_id']
+        partner_type = bh_info['companion_type']
+
+        if partner_type == 14:
+            
+            partner_mass = bh_escapers[partner_id]['mass']
+
+            merg_time = esc_time + calc_peters_eqn(a, e, mass, partner_mass)
+            rem_mass = np.nan
+
+            if merg_time < myr_to_code_unit(AGE_OF_UNIV):
+                    
+                if mass > partner_mass:    
+
+                    bh_worldlines[wid_esc].add_merger(
+                        time = merg_time,
+                        mass = rem_mass,
+                        id_rem = np.nan,
+                        mass_host = mass,
+                        host_type = 14,
+                        id_host = id_esc,
+                        partner_id = partner_id,
+                        partner_type = partner_type,
+                        partner_mass = partner_mass,
+                        host_spin = bh_info.get('spin', np.nan),
+                        partner_spin = bh_info.get('companion_spin', np.nan),
+                        semi_maj = bh_info['a'],
+                        eccentricity = bh_info['e'],
+                        disrupt = False
+
+                    )
+
+                else:
+
+                    bh_worldlines[wid_esc].add_merger(
+                        time = merg_time,
+                        mass = rem_mass,
+                        id_rem = np.nan,
+                        mass_host = mass,
+                        host_type = 14,
+                        id_host = id_esc,
+                        partner_id = partner_id,
+                        partner_type = partner_type,
+                        partner_mass = partner_mass,
+                        host_spin = bh_info.get('spin', np.nan),
+                        partner_spin = bh_info.get('companion_spin', np.nan),
+                        semi_maj = bh_info['a'],
+                        eccentricity = bh_info['e'],
+                        disrupt = True                        
+                    )
+
     logger.warning(
         f"{escape_escapers} in escapers has no prior worldline; created escape-seeded worldlines"
             )
@@ -1715,7 +1781,7 @@ def generate_worldlines(out_loc, verbose=True):
             if dmdt > 0:
                     
                 try:
-                    start_time = bh_info['time'][ith - 1]
+                    start_time = bh_info['time'][max(ith - 1, 0)]
                 except IndexError:
                     start_time = bh_info['time'][ith]
 
@@ -1738,6 +1804,8 @@ def generate_worldlines(out_loc, verbose=True):
 
         bh_worldlines[wid].sort_history()
         bh_worldlines[wid].sort_events()
+
+    add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid)
 
     with open(os.path.join(out_loc, "bh_worldlines.pkl"), 'wb') as f:
         pickle.dump(bh_worldlines, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -1790,7 +1858,7 @@ def get_all_related_wid(current_wid, bh_worldlines, bh_id_to_wid, visited=None):
 
     for partner_id in partner_ids:
 
-        partner_wid = bh_id_to_wid[partner_id]
+        partner_wid = get_wid_from_id(partner_id, bh_id_to_wid)
 
         get_all_related_wid(
             partner_wid,
@@ -1805,8 +1873,122 @@ def get_wid_from_id(bh_id, bh_id_to_wid):
 
     if bh_id in bh_id_to_wid.keys():
         return bh_id_to_wid[bh_id]
-    if 'XE' + str(bh_id) in bh_id_to_wid.keys():
+    elif 'XE' + str(bh_id) in bh_id_to_wid.keys():
         return bh_id_to_wid['XE' + str(bh_id)]
+    elif 'XC' + str(bh_id) in bh_id_to_wid.keys():
+        return bh_id_to_wid['XC' + str(bh_id)]
+    else:
+        logger.error(f"{bh_id} doesn't have wid")
+        raise KeyError
+    
+def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
+
+    M_sun_kg = astropy_const.M_sun.value
+    G_const = astropy_const.G.value
+    c_const = astropy_const.c.value
+
+    for wid, bhwl in bh_worldlines.items():
+
+        J_bh = 0
+
+        old_partner_id = 0
+
+        for event in bhwl.events:
+
+            if event['event'] == 'accretion':
+
+                new_partner_id = event['partner_id']
+
+                mass_bh = event['mass']
+                accr_time = event['accr_time'] * CODE_TO_MYR * 1e6 * 31556952
+                dmdt = event['dmdt'] * M_sun_kg #in kg
+
+                l_isco = l_isco_non_spinning(mass_bh)
+
+                dJ = l_isco * dmdt * accr_time
+
+                if (old_partner_id == 0) or (new_partner_id == old_partner_id):
+
+                    J_bh += dJ
+
+                else:
+
+                    cos_theta, _ = get_isotropic_tilts
+
+                    J_bh = np.sqrt(J_bh**2 + dJ**2 + 2 * J_bh * dJ * cos_theta)
+
+                old_partner_id = new_partner_id
+
+            elif event['event'] == 'collision':
+
+                new_partner_id = event['partner_ids']
+
+                m1 = event['mass'] * M_sun_kg
+                
+                if len(event['partner_masses']) == 1:
+
+                    m2 = event['partner_masses'][0] * M_sun_kg
+
+                else:
+
+                    logger.error(f"{len(event['partner_masses'])} collision partners present in {wid}")
+
+                    raise ValueError
+                
+                b = event['impact_par'] * 6.957e8 #from RSUN to m
+                v_inf = event['V_inf'] * 1000 #in m/s
+
+                mu = (m1 * m2)/(m1 + m2)
+
+                focus_factor = np.sqrt(1 + 2 * G_const * (m1 + m2) / (b * v_inf**2))
+
+                dJ = mu * b * v_inf * focus_factor
+
+                if (old_partner_id == 0) or (new_partner_id == old_partner_id):
+
+                    J_bh += dJ
+
+                else:
+
+                    cos_theta, _ = get_isotropic_tilts
+
+                    J_bh = np.sqrt(J_bh**2 + dJ**2 + 2 * J_bh * dJ * cos_theta)
+
+                old_partner_id = new_partner_id
+
+            if event['event'] == 'merger':
+
+                if (event['host_spin'] == 0) and (J_bh != 0):
+                    a_star = c_const * J_bh / (G_const * (mass_bh * M_sun_kg) ** 2)
+                    
+                    event['host_spin'] = min(a_star, 0.998)
+
+                    print(f"{wid} spin changed")
+
+                    J_bh = 0
+
+            elif event['event'] == 'merged':
+
+                merged_into = event['merged_into']
+
+                try:
+                    merged_into_wid = get_wid_from_id(merged_into, bh_id_to_wid)
+                except KeyError:
+                    logger.error(f"{wid} with partner {merged_into}")
+                    raise
+
+                for partner_event in bh_worldlines[merged_into_wid].events:
+
+                    if (partner_event['time'] == event['time']) and (partner_event['event'] == 'merger'):
+                        if (partner_event['partner_spin'] == 0) and (J_bh != 0):
+                            a_star = c_const * J_bh / (G_const * (mass_bh * M_sun_kg) ** 2)
+
+                            partner_event['partner_spin'] = min(a_star, 0.998)
+
+                            J_bh = 0
+
+                            print(f"{wid} spin changed")
+
 
 def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
 
@@ -1829,51 +2011,6 @@ def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
         semi_majs = merger_data['semi_majs']
         eccentricitys = merger_data['eccentricitys']
 
-        esc_data = bhwl.get_escape()
-
-        if esc_data != None:
-
-            esc_time = esc_data['time']
-
-            if esc_data['partner_type'] == 14:
-                
-                mass = esc_data['mass']
-                a = esc_data['a']
-                e = esc_data['e']
-                host_id = esc_data['host_id']
-                partner_id = esc_data['partner_id']
-                partner_wid = get_wid_from_id(partner_id, bh_id_to_wid)
-
-                partner_escape = bh_worldlines[partner_wid].get_escape()
-                partner_mass = partner_escape['mass']
-
-                if mass > partner_mass:
-
-                    host_spin = esc_data.get('spin', np.nan)
-                    partner_spin = partner_escape.get('spin', np.nan)
-
-                    # Query the line with mass id and partner_id to
-                    # get orbit properties.
-
-                    merg_time = esc_time + calc_peters_eqn(a, e, mass, partner_mass)
-
-                    if merg_time < myr_to_code_unit(AGE_OF_UNIV):
-
-                        times.append(merg_time)
-                        rem_ids.append(host_id)
-                        host_masses.append(mass)
-                        host_ids.append(host_id)
-                        partner_ids.append(partner_id)
-                        partner_masses.append(partner_mass)
-                        host_spins.append(host_spin)
-                        partner_spins.append(partner_spin)
-                        semi_majs.append(a)
-                        eccentricitys.append(e)
-
-        else:
-
-            esc_time = None
-
         n_mergers = len(times)
 
         if n_mergers == 0:
@@ -1887,6 +2024,7 @@ def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
 
         accr_data = bhwl.get_accretions()
         accr_times = accr_data['times']
+        accr_partner_ids = accr_data.get('partner_ids', [])
 
         first_accr_time = (accr_times[0] 
                            if len(accr_times) != 0 
@@ -1911,7 +2049,6 @@ def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
             'partner_spins' : partner_spins,
             'first_accretion_time' : first_accr_time,
             'first_collision_time' : first_coll_time,
-            'esc_time' : esc_time,
             'semi_majs' : semi_majs,
             'eccentricitys' : eccentricitys
         }
@@ -1927,8 +2064,11 @@ def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
 
             merger_str = set()
 
-            if wid_of_mergers[wid]['esc_time'] != None:
-                if time > wid_of_mergers[wid]['esc_time']:
+            esc_data = bh_worldlines[wid].get_escape()
+            esc_time = esc_data.get('time', None)
+
+            if esc_time != None:
+                if time > esc_time:
                     merger_str.add('E')
 
             if time > wid_of_mergers[wid]['times'][0]:
@@ -1946,38 +2086,54 @@ def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
 
                 merger_str.add('1G')
 
-            if (
-                (wid_of_mergers[wid]['first_accretion_time']
-                    > 0)
-                and
-                (wid_of_mergers[wid]['first_accretion_time']
-                    < time)
-            ):
-                    
-                merger_str.add('A')
+            same_partner = False
+            any_accretion = False
 
-            elif any(
-                event['event'] == 'accretion'
-                for event in bh_worldlines[partner_wid].events
-                ):
+            accr_data = bh_worldlines[wid].get_accretions()
+            partner_accr_data = bh_worldlines[partner_wid].get_accretions()
 
-                merger_str.add('A')
+            accr_times = accr_data.get('times', [])
+            accr_partner_ids = accr_data.get('partner_ids', [])
 
-            if (
-                (wid_of_mergers[wid]['first_collision_time']
-                    > 0)
-                and
-                (wid_of_mergers[wid]['first_collision_time']
-                    < time)
-            ):
-                    
-                merger_str.add('C')
+            partner_accr_times = partner_accr_data.get('times', [])
+            partner_accr_partner_ids = partner_accr_data.get('partner_ids', [])
 
-            elif any(
-                event['event'] == 'collision'
-                for event in bh_worldlines[partner_wid].events
-                ):
+            merger_partner_id = bh_worldlines[partner_wid].get_id_at_time(time)
+            own_id = bh_worldlines[wid].get_id_at_time(time)
 
+            for acc_time, acc_pid in zip(accr_times, accr_partner_ids):
+
+                if acc_time >= time:
+                    continue
+
+                any_accretion = True
+
+                if acc_pid == merger_partner_id:
+                    same_partner = True
+                else:
+                    same_partner = False
+
+            for partner_acc_time, partner_acc_pid in zip(partner_accr_times, partner_accr_partner_ids):
+
+                if partner_acc_time >= time:
+                    continue
+
+                any_accretion = True
+
+                if partner_acc_pid == own_id:
+                    same_partner = True
+                else:
+                    same_partner = False
+
+            if same_partner:
+                merger_str.add('AS')   # SAME partner accretion
+            elif any_accretion:
+                merger_str.add('AD')   # DIFFERENT partner accretion
+
+            coll_data = bh_worldlines[wid].get_collisions()
+            coll_times = coll_data.get('times', [])
+
+            if any(ct < time for ct in coll_times):
                 merger_str.add('C')
 
             wid_of_mergers[wid]['merger_types'].append(
@@ -1986,7 +2142,6 @@ def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
 
         del wid_of_mergers[wid]['first_accretion_time']
         del wid_of_mergers[wid]['first_collision_time']
-        del wid_of_mergers[wid]['esc_time']
 
     with open(os.path.join(out_loc, "all_mergers.pkl"), 'wb') as f:
         pickle.dump(wid_of_mergers, f, protocol=pickle.HIGHEST_PROTOCOL)
