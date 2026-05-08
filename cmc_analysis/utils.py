@@ -559,8 +559,8 @@ def parse_bh_collisions(out_loc, prefix):
             if rem_type != 14:
                 continue
 
-            impact_par_match = re.search(r'b\[RSUN\]=([0-9.Ee+-]+)', line).group(1)
-            V_inf_match = re.search(r'vinf\[km/s\]=([0-9.Ee+-]+)', line).group(1)
+            impact_par_match = re.search(r'b\[RSUN\]=([0-9.Ee+-]+)', line)
+            V_inf_match = re.search(r'vinf\[km/s\]=([0-9.Ee+-]+)', line)
 
             if not impact_par_match or not V_inf_match:
                 impact_par = np.nan
