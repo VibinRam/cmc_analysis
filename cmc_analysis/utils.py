@@ -68,10 +68,10 @@ EVENT_TO_COLOR = {
 }
 
 # code unit to Myr conversion factor
-CODE_TO_MYR = 516.414
+CODE_TO_MYR = 3152.79
 
 # msun per code unit time to msun per myr conversion
-MSUN_PER_CODE_TO_MSUN_PER_MYR = (1/516.414)
+MSUN_PER_CODE_TO_MSUN_PER_MYR = (1/3152.79)
 
 # mstar unit msun to msun (esc file seems to use this for bh)
 MSTAR_UNIT_MSUN_TO_MSUN = 0.605875
@@ -231,6 +231,7 @@ def parse_bh_tracks(out_loc, prefix):
 
             bh_ids = []
             dmdts = []
+            t_accs = []
             masses = []
             companion_ids = []
             companion_types = []
@@ -247,6 +248,7 @@ def parse_bh_tracks(out_loc, prefix):
 
                 bh_ids.append(int(row.id0))
                 dmdts.append(float(row.dmdt0))
+                t_accs.append(float(row.tacc0))
                 masses.append(float(row.m0))
                 companion_ids.append(int(row.id1))
                 companion_types.append(int(row.bin_startype1))
@@ -255,6 +257,7 @@ def parse_bh_tracks(out_loc, prefix):
              
                 bh_ids.append(int(row.id1))
                 dmdts.append(float(row.dmdt1))
+                t_accs.append(float(row.tacc1))
                 masses.append(float(row.m1))
                 companion_ids.append(int(row.id0))
                 companion_types.append(int(row.bin_startype0))
@@ -269,6 +272,7 @@ def parse_bh_tracks(out_loc, prefix):
                         "snap_idx" : [snap_idx],
                         "time" : [time],
                         "dmdt" : [dmdts[i]],
+                        "t_accs" : [t_accs[i]],
                         "mass" : [masses[i]],
                         "binflag" : [row.binflag],
                         "companion_id" : [companion_ids[i]],
@@ -280,6 +284,7 @@ def parse_bh_tracks(out_loc, prefix):
                     bh_tracks[bh_ids[i]]["snap_idx"].append(snap_idx)
                     bh_tracks[bh_ids[i]]["time"].append(time)
                     bh_tracks[bh_ids[i]]["dmdt"].append(dmdts[i])
+                    bh_tracks[bh_ids[i]]["t_acc"].append(t_accs[i])
                     bh_tracks[bh_ids[i]]["mass"].append(masses[i])
                     bh_tracks[bh_ids[i]]["binflag"].append(row.binflag)
                     bh_tracks[bh_ids[i]]["companion_id"].append(companion_ids[i])
@@ -991,7 +996,10 @@ class BHWorldLine:
     def add_collision(
             self, time, mass, new_id,
             partner_ids, partner_types, 
-            partner_masses, disrupt=False
+            partner_masses, 
+            impact_par=np.nan,
+            V_inf=np.nan,
+            disrupt=False
         ):
   
         self.events.append(
@@ -1002,6 +1010,8 @@ class BHWorldLine:
                 "partner_ids" : partner_ids,
                 "partner_types" : partner_types,
                 "partner_masses" : partner_masses,
+                "impact_par" : impact_par,
+                "V_inf" : V_inf
             }
         )
 
@@ -1176,6 +1186,8 @@ class BHWorldLine:
 
         times = []
         partner_ids = []
+        impact_pars = []
+        V_infs = []
 
         for event in self.events:
 
@@ -1191,9 +1203,15 @@ class BHWorldLine:
 
                 partner_ids.append(event['partner_ids'])
 
+                impact_pars.append(event['impact_par'])
+
+                V_infs.append(event['V_inf'])
+
         return {
             'times' : times,
-            'partner_ids' : partner_ids
+            'partner_ids' : partner_ids,
+            'impact_pars' : impact_pars,
+            'V_infs' : V_infs
         }
     
     def get_accretions(self):
@@ -1483,6 +1501,8 @@ def generate_worldlines(out_loc, verbose=True):
                                        partner_ids = ids_collided,
                                        partner_types = types_collided,
                                        partner_masses = masses_collided,
+                                       impact_par = bh_info['impact_par'],
+                                       V_inf = bh_info['V_inf'],
                                        disrupt = True
                                     )                
 
@@ -1501,6 +1521,8 @@ def generate_worldlines(out_loc, verbose=True):
                                    partner_ids = ids_collided,
                                    partner_types = types_collided,
                                    partner_masses = masses_collided,
+                                   impact_par = bh_info['impact_par'],
+                                   V_inf = bh_info['V_inf'],
                                    disrupt = False
                                )
 
@@ -1788,20 +1810,20 @@ def generate_worldlines(out_loc, verbose=True):
                 
             if dmdt > 0:
                     
-                try:
-                    start_time = bh_info['time'][max(ith - 1, 0)]
-                except IndexError:
-                    start_time = bh_info['time'][ith]
+                # try:
+                #     start_time = bh_info['time'][max(ith - 1, 0)]
+                # except IndexError:
+                #     start_time = bh_info['time'][ith]
 
-                try:
-                    end_time = bh_info['time'][ith + 1]
-                except IndexError:
-                    end_time = bh_info['time'][ith]
+                # try:
+                #     end_time = bh_info['time'][ith + 1]
+                # except IndexError:
+                #     end_time = bh_info['time'][ith]
 
                 bh_worldlines[wid].add_accretion(
                                        time = bh_info['time'][ith],
                                        mass = bh_info['mass'][ith],
-                                       accr_time = end_time - start_time,
+                                       accr_time = bh_info['t_acc'][ith],
                                        snap_idx = bh_info['snap_idx'][ith],
                                        dmdt = bh_info['dmdt'][ith],
                                        partner_id = bh_info['companion_id'][ith],
@@ -1907,11 +1929,11 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
 
                 new_partner_id = event['partner_id']
 
-                mass_bh = event['mass']
-                accr_time = event['accr_time'] * CODE_TO_MYR * 1e6 * 31556952
-                dmdt = event['dmdt'] * M_sun_kg #in kg
+                mass_bh = event['mass'] #in MSUN
+                accr_time = code_unit_to_myr(event['accr_time']) #in MYR
+                dmdt = event['dmdt'] * M_sun_kg #in kg/MYR
 
-                l_isco = l_isco_non_spinning(mass_bh)
+                l_isco = l_isco_non_spinning(mass_bh) 
 
                 dJ = l_isco * dmdt * accr_time
 
@@ -1921,13 +1943,15 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
 
                 else:
 
-                    cos_theta, _ = get_isotropic_tilts
+                    cos_theta, _ = get_isotropic_tilts()
 
                     J_bh = np.sqrt(J_bh**2 + dJ**2 + 2 * J_bh * dJ * cos_theta)
 
                 old_partner_id = new_partner_id
 
             elif event['event'] == 'collision':
+
+                mass_bh = event['mass'] 
 
                 new_partner_id = event['partner_ids']
 
@@ -1941,7 +1965,7 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
 
                     logger.error(f"{len(event['partner_masses'])} collision partners present in {wid}")
 
-                    raise ValueError
+                    continue
                 
                 b = event['impact_par'] * 6.957e8 #from RSUN to m
                 v_inf = event['V_inf'] * 1000 #in m/s
@@ -1958,7 +1982,7 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
 
                 else:
 
-                    cos_theta, _ = get_isotropic_tilts
+                    cos_theta, _ = get_isotropic_tilts()
 
                     J_bh = np.sqrt(J_bh**2 + dJ**2 + 2 * J_bh * dJ * cos_theta)
 
@@ -1967,6 +1991,9 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
             if event['event'] == 'merger':
 
                 if (event['host_spin'] == 0) and (J_bh != 0):
+
+                    mass_bh = event['mass'] 
+
                     a_star = c_const * J_bh / (G_const * (mass_bh * M_sun_kg) ** 2)
                     
                     event['host_spin'] = min(a_star, 0.998)
@@ -1989,6 +2016,9 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
 
                     if (partner_event['time'] == event['time']) and (partner_event['event'] == 'merger'):
                         if (partner_event['partner_spin'] == 0) and (J_bh != 0):
+
+                            mass_bh = event['mass'] 
+
                             a_star = c_const * J_bh / (G_const * (mass_bh * M_sun_kg) ** 2)
 
                             partner_event['partner_spin'] = min(a_star, 0.998)

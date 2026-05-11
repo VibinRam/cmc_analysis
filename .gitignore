@@ -1,4 +1,6 @@
 /outputs
 /cmc_high_mass.egg-info
-/__pycache__/
+/__pycache__
+.DS_Store
+cmc_analysis/__pycache__/
 
