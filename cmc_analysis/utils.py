@@ -12,7 +12,7 @@ import astropy.constants as astropy_const
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.INFO)
 
 SNAP_COLS = [
     "id", "m", "r", "vr", "vt", "E", "J", "binflag",
@@ -240,6 +240,7 @@ def parse_bh_tracks(out_loc, prefix):
                 
                 bh_ids.append(int(row.id))
                 dmdts.append(0.0)
+                t_accs.append(0.0)
                 masses.append(float(row.m))
                 companion_ids.append(None)
                 companion_types.append(None)
@@ -272,7 +273,7 @@ def parse_bh_tracks(out_loc, prefix):
                         "snap_idx" : [snap_idx],
                         "time" : [time],
                         "dmdt" : [dmdts[i]],
-                        "t_accs" : [t_accs[i]],
+                        "t_acc" : [t_accs[i]],
                         "mass" : [masses[i]],
                         "binflag" : [row.binflag],
                         "companion_id" : [companion_ids[i]],
