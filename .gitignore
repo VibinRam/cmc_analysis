@@ -1,6 +1,17 @@
-/outputs
-/cmc_high_mass.egg-info
-/__pycache__
-.DS_Store
-cmc_analysis/__pycache__/
+# Python cache
+__pycache__/
+*.pyc
 
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Outputs
+outputs/
