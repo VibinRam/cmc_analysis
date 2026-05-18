@@ -11,8 +11,31 @@ import h5py
 import astropy.constants as astropy_const
 
 logger = logging.getLogger(__name__)
+
+# Configure root logging
 logging.basicConfig(level=logging.WARNING)
+
+# Set this logger level
 logger.setLevel(logging.INFO)
+
+# Create file handler
+file_handler = logging.FileHandler("mylog.log")
+
+# Optional: set level for file logging
+file_handler.setLevel(logging.INFO)
+
+# Optional: formatting
+formatter = logging.Formatter(
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+file_handler.setFormatter(formatter)
+
+# Attach handler to logger
+logger.addHandler(file_handler)
+
+# Test
+logger.info("This goes to the file")
+logger.warning("Warning message")
 
 SNAP_COLS = [
     "id", "m", "r", "vr", "vt", "E", "J", "binflag",
@@ -79,7 +102,18 @@ MSTAR_UNIT_MSUN_TO_MSUN = 0.605875
 # age of the universe
 AGE_OF_UNIV = 13.8e3 #myr
 
-def calc_peters_eqn(a, e, m1, m2):
+def _get_conv_value(conv_units, key, default):
+    if conv_units is None:
+        return default
+
+    value = conv_units.get(key, default)
+
+    if isinstance(value, dict):
+        return value.get('value', default)
+
+    return value
+
+def calc_peters_eqn(a, e, m1, m2, conv_units=None):
     # a - AU
     # m - Mo
 
@@ -91,7 +125,7 @@ def calc_peters_eqn(a, e, m1, m2):
 
     merg_time = const * f_e * np.power(a, 4) / (m1 * m2 * (m1+m2))
 
-    return myr_to_code_unit(merg_time)
+    return myr_to_code_unit(merg_time, conv_units)
 
 def calc_chirp_mass(m1, m2):
 
@@ -119,17 +153,21 @@ def l_isco_non_spinning(m_bh):
 
     return np.sqrt(12) * astropy_const.G.value * m_bh_si /astropy_const.c.value
 
-def code_unit_to_myr(time):
-    return CODE_TO_MYR * time
+def code_unit_to_myr(time, conv_units=None):
+    code_to_myr = _get_conv_value(conv_units, 'timeunitsmyr', CODE_TO_MYR)
+    return code_to_myr * time
 
-def myr_to_code_unit(time):
-    return time / CODE_TO_MYR
+def myr_to_code_unit(time, conv_units=None):
+    code_to_myr = _get_conv_value(conv_units, 'timeunitsmyr', CODE_TO_MYR)
+    return time / code_to_myr
 
-def dmdt_code_unit_to_per_myr(dmdt):
-    return MSUN_PER_CODE_TO_MSUN_PER_MYR * dmdt
+def dmdt_code_unit_to_per_myr(dmdt, conv_units=None):
+    code_to_myr = _get_conv_value(conv_units, 'timeunitsmyr', CODE_TO_MYR)
+    return dmdt / code_to_myr
 
-def code_unit_esc_to_MSUN(mass):
-    return MSTAR_UNIT_MSUN_TO_MSUN * mass
+def code_unit_esc_to_MSUN(mass, conv_units=None):
+    mstar_unit_msun_to_msun = _get_conv_value(conv_units, 'mstarunitmsun', MSTAR_UNIT_MSUN_TO_MSUN)
+    return mstar_unit_msun_to_msun * mass
 
 def clean_colnames(list_unproc_colnames):
     clean_colnames = []
@@ -216,7 +254,34 @@ def sort_snap(out_loc, prefix):
 
     return all_snap_files
 
+def parse_conv_sh(out_loc, prefix):
+    """Parse a CMC conv.sh file and return a dict of unit conversion values."""
+    filepath = os.path.join(out_loc, f"{prefix}.conv.sh")
+    units = {}
+    comment = None
+    with open(filepath, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith('#'):
+                comment = line.lstrip('#').strip()
+            elif '=' in line and not any(line.startswith(c) for c in ('cat', 'awk', 'prune', 'join', 'head', 'tail')):
+                key, _, val = line.partition('=')
+                key = key.strip()
+                val = val.strip()
+                try:
+                    units[key] = {'value': float(val), 'description': comment}
+                except ValueError:
+                    units[key] = {'value': val, 'description': comment}
+                comment = None
+
+    with open(os.path.join(out_loc, "conv_sh.pkl"), 'wb') as f:
+        pickle.dump(units, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    return units
+
 def parse_bh_tracks(out_loc, prefix):
+
+    conv_units = load_conv_sh(out_loc)
 
     bh_tracks = {}
 
@@ -265,7 +330,7 @@ def parse_bh_tracks(out_loc, prefix):
 
             for i in range(len(bh_ids)):
 
-                dmdts[i] = dmdt_code_unit_to_per_myr(dmdts[i])
+                dmdts[i] = dmdt_code_unit_to_per_myr(dmdts[i], conv_units)
 
                 if bh_ids[i] not in bh_tracks:
 
@@ -614,6 +679,8 @@ def parse_bh_collisions(out_loc, prefix):
 
 def parse_bh_escapers(out_loc, prefix):
 
+    conv_units = load_conv_sh(out_loc)
+
     esc_filename = f"{prefix}.esc.dat"
 
     esc_file = os.path.join(out_loc, esc_filename)
@@ -698,7 +765,7 @@ def parse_bh_escapers(out_loc, prefix):
             bh_escapers[bh_ids[i]] = {
                 "time" : row.t,
                 "mass" : masses[i],
-                "dmdt" : dmdts[i],
+                "dmdt" : dmdt_code_unit_to_per_myr(dmdts[i], conv_units),
                 "binflag" : binflag[i],
                 "a" : semi_maj[i],
                 "e" : eccentr[i],
@@ -774,6 +841,22 @@ def parse_snap_times(out_loc, prefix):
     time_to_snap = {v: k for k, v in snap_times.items()}
 
     return snap_times, time_to_snap
+
+def load_conv_sh(out_loc):
+
+    conv_sh_file = os.path.join(out_loc, "conv_sh.pkl")
+
+    try:
+
+        with open(conv_sh_file, 'rb') as f:
+            conv_units = pickle.load(f)
+
+    except FileNotFoundError:
+
+        logger.error("Error: file \"conv_sh.pkl\" not found. Try parse_conv_sh()")
+        raise 
+
+    return conv_units
 
 def load_bh_tracks(out_loc):
 
@@ -1392,11 +1475,7 @@ def generate_worldlines(out_loc, verbose=True):
 
         logger.setLevel(logging.ERROR)
 
-    try:
-        bh_formations = load_bh_formations(out_loc)
-    except FileNotFoundError:
-        logger.warning("No bh_formations.pkl found, using tracks fallback only.")
-        bh_formations = {}
+    conv_units = load_conv_sh(out_loc)
     bh_formations = load_bh_formations(out_loc)
     bh_collisions = load_bh_collisions(out_loc)
     bh_mergers = load_bh_mergers(out_loc)
@@ -1698,10 +1777,10 @@ def generate_worldlines(out_loc, verbose=True):
             
             partner_mass = bh_escapers[partner_id]['mass']
 
-            merg_time = esc_time + calc_peters_eqn(a, e, mass, partner_mass)
+            merg_time = esc_time + calc_peters_eqn(a, e, mass, partner_mass, conv_units)
             rem_mass = np.nan
 
-            if merg_time < myr_to_code_unit(AGE_OF_UNIV):
+            if merg_time < myr_to_code_unit(AGE_OF_UNIV, conv_units):
                     
                 if mass > partner_mass:    
 
@@ -1811,20 +1890,25 @@ def generate_worldlines(out_loc, verbose=True):
                 
             if dmdt > 0:
                     
-                # try:
-                #     start_time = bh_info['time'][max(ith - 1, 0)]
-                # except IndexError:
-                #     start_time = bh_info['time'][ith]
+                try:
+                    start_time = bh_info['time'][max(ith - 1, 0)]
+                except IndexError:
+                    start_time = bh_info['time'][ith]
 
-                # try:
-                #     end_time = bh_info['time'][ith + 1]
-                # except IndexError:
-                #     end_time = bh_info['time'][ith]
+                try:
+                    end_time = bh_info['time'][ith + 1]
+                except IndexError:
+                    end_time = bh_info['time'][ith]
+
+                accr_time = bh_info['t_acc'][ith]
+
+                if accr_time == 0:
+                    accr_time = end_time - start_time
 
                 bh_worldlines[wid].add_accretion(
                                        time = bh_info['time'][ith],
                                        mass = bh_info['mass'][ith],
-                                       accr_time = bh_info['t_acc'][ith],
+                                       accr_time = accr_time,
                                        snap_idx = bh_info['snap_idx'][ith],
                                        dmdt = bh_info['dmdt'][ith],
                                        partner_id = bh_info['companion_id'][ith],
@@ -1914,6 +1998,8 @@ def get_wid_from_id(bh_id, bh_id_to_wid):
     
 def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
 
+    conv_units = load_conv_sh(out_loc)
+
     M_sun_kg = astropy_const.M_sun.value
     G_const = astropy_const.G.value
     c_const = astropy_const.c.value
@@ -1931,7 +2017,7 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
                 new_partner_id = event['partner_id']
 
                 mass_bh = event['mass'] #in MSUN
-                accr_time = code_unit_to_myr(event['accr_time']) #in MYR
+                accr_time = code_unit_to_myr(event['accr_time'], conv_units) #in MYR
                 dmdt = event['dmdt'] * M_sun_kg #in kg/MYR
 
                 l_isco = l_isco_non_spinning(mass_bh) 
@@ -1949,6 +2035,9 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
                     J_bh = np.sqrt(J_bh**2 + dJ**2 + 2 * J_bh * dJ * cos_theta)
 
                 old_partner_id = new_partner_id
+                a_star = c_const * J_bh / (G_const * (mass_bh * M_sun_kg) ** 2)
+                event['host_spin'] = a_star
+                print(f"{wid} spin changed")
 
             elif event['event'] == 'collision':
 
@@ -1988,8 +2077,11 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
                     J_bh = np.sqrt(J_bh**2 + dJ**2 + 2 * J_bh * dJ * cos_theta)
 
                 old_partner_id = new_partner_id
+                a_star = c_const * J_bh / (G_const * (mass_bh * M_sun_kg) ** 2)
+                event['host_spin'] = a_star
+                print(f"{wid} spin changed")
 
-            if event['event'] == 'merger':
+            elif event['event'] == 'merger':
 
                 if (event['host_spin'] == 0) and (J_bh != 0):
 
