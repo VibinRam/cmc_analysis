@@ -237,4 +237,8 @@ def plot_bh_mergers(all_mergers):
     fig3.savefig('merger_plot3.pdf')
     fig4.savefig('merger_plot4.pdf')
 
+    # ax3.set_ylim(-1e-4, 1e-4)
+    ax3.set_yscale('log')
+    fig3.savefig('merger_plot3_lowspin.pdf')
+
     return ax
