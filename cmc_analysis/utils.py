@@ -9,7 +9,6 @@ import logging
 from matplotlib.collections import LineCollection
 import h5py
 import astropy.constants as astropy_const
-from cmc_analysis import plot_utils
 
 logger = logging.getLogger(__name__)
 
@@ -1014,8 +1013,6 @@ def test_bh_formations(out_loc):
 
     bh_formations = load_bh_formations(out_loc)
     print(f"bh_formations data type : {type(bh_formations)}")
-
-    plot_utils.plot_bh_formations(bh_formations)
 
     return None
 
