@@ -547,7 +547,7 @@ def parse_bh_mergers(out_loc, prefix):
 
         bh_mergers[id_rem]["eccentricity"][merg_ind] = eccentricity
 
-        bh_mergers[id_rem]['spin_rem'] = rem_spin
+        bh_mergers[id_rem]['spin_rem'][merg_ind] = rem_spin
 
     # Add bhmerger-only pairs that are absent from semergedisrupt.
     # For these rows, use the more massive component as host/remnant proxy.
