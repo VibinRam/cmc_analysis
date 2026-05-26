@@ -486,7 +486,7 @@ def parse_bh_mergers(out_loc, prefix):
         merger_info["spin_merged"] = np.full(n_mergers, np.nan)
         merger_info["semi_maj"] = np.full(n_mergers, np.nan)
         merger_info["eccentricity"] = np.full(n_mergers, np.nan)
-        merger_info['rem_spin'] = np.full(n_mergers, np.nan)
+        merger_info['spin_rem'] = np.full(n_mergers, np.nan)
 
     unmatched_rows = []
 
@@ -591,7 +591,7 @@ def parse_bh_mergers(out_loc, prefix):
                 "type_host": [14],
                 "spin_host": np.array([spin_host]),
                 "spin_merged": np.array([spin_merged]),
-                "rem_spin": np.array([rem_spin]),
+                "spin_rem": np.array([rem_spin]),
                 "semi_maj": np.array([semi_maj]),
                 "eccentricity": np.array([eccentricity])
             }
@@ -608,7 +608,7 @@ def parse_bh_mergers(out_loc, prefix):
             bh_mergers[id_rem]["type_host"].append(14)
             bh_mergers[id_rem]["spin_host"] = np.append(bh_mergers[id_rem]["spin_host"], spin_host)
             bh_mergers[id_rem]["spin_merged"] = np.append(bh_mergers[id_rem]["spin_merged"], spin_merged)
-            bh_mergers[id_rem]["rem_spin"] = np.append(bh_mergers[id_rem]['rem_spin'], rem_spin)
+            bh_mergers[id_rem]["spin_rem"] = np.append(bh_mergers[id_rem]['spin_rem'], rem_spin)
             bh_mergers[id_rem]["semi_maj"] = np.append(bh_mergers[id_rem]["semi_maj"], semi_maj)
             bh_mergers[id_rem]["eccentricity"] = np.append(bh_mergers[id_rem]["eccentricity"], eccentricity)
 
@@ -1721,7 +1721,7 @@ def generate_worldlines(out_loc, verbose=True):
                                        partner_mass = bh_info['mass_merged'][nth],
                                        host_spin = bh_info.get('spin_host', np.full(len(bh_info['time']), np.nan))[nth],
                                        partner_spin = bh_info.get('spin_merged', np.full(len(bh_info['time']), np.nan))[nth],
-                                       rem_spin = bh_info.get('rem_spin', np.full(len(bh_info['time']), np.nan))[nth],
+                                       rem_spin = bh_info.get('spin_rem', np.full(len(bh_info['time']), np.nan))[nth],
                                        semi_maj = bh_info.get('semi_maj', np.full(len(bh_info['time']), np.nan))[nth],
                                        eccentricity = bh_info.get('eccentricity', np.full(len(bh_info['time']), np.nan))[nth],
                                        disrupt = False
@@ -1759,7 +1759,7 @@ def generate_worldlines(out_loc, verbose=True):
                                           partner_mass = bh_info['mass_host'][nth],
                                           host_spin = bh_info.get('spin_merged', np.full(len(bh_info['time']), np.nan))[nth],
                                           partner_spin = bh_info.get('spin_host', np.full(len(bh_info['time']), np.nan))[nth],
-                                          rem_spin = bh_info.get('rem_spin', np.full(len(bh_info['time']), np.nan))[nth],
+                                          rem_spin = bh_info.get('spin_rem', np.full(len(bh_info['time']), np.nan))[nth],
                                           disrupt = True
                                       )       
  
