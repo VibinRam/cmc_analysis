@@ -2057,6 +2057,7 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
 
         old_partner_id = 0
         latest_host_spin = 0
+        latest_host_mass = 0
 
         for event in bhwl.events:
 
@@ -2095,6 +2096,7 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
                 event['host_spin'] = a_star_final
                 
                 latest_host_spin = a_star_final
+                latest_host_mass = m_bh_final
                 print(f"{wid} spin changed due to accretion")
 
             elif event['event'] == 'collision':
@@ -2144,6 +2146,7 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
                     event['host_spin'] = a_star_final
 
                     latest_host_spin = a_star_final
+                    latest_host_mass = m_bh_final
                     print(f"{wid} spin changed due to accretion")
 
                 else:
@@ -2176,10 +2179,12 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
             elif event['event'] == 'merger':
 
                 event['host_spin'] = latest_host_spin
+                event['mass_host'] = latest_host_mass
 
                 print(f"{wid} spin change added to merger")
 
                 latest_host_spin = event['rem_spin']
+                latest_host_mass = event['rem_mass']
 
             elif event['event'] == 'merged':
 
@@ -2196,6 +2201,7 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
                     if (partner_event['time'] == event['time']) and (partner_event['event'] == 'merger'):
 
                         partner_event['partner_spin'] = latest_host_spin
+                        partner_event['partner_mass'] = latest_host_mass
 
                         print(f"{wid} spin change added to merged")
 
