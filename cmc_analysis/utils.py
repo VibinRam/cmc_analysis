@@ -9,6 +9,7 @@ import logging
 from matplotlib.collections import LineCollection
 import h5py
 import astropy.constants as astropy_const
+from cmc_analysis import plot_utils
 
 logger = logging.getLogger(__name__)
 
@@ -1009,6 +1010,15 @@ def augment_formations_with_tracks(bh_formations, bh_tracks):
 
     return bh_formations
 
+def test_bh_formations(out_loc):
+
+    bh_formations = load_bh_formations(out_loc)
+    print(f"bh_formations data type : {type(bh_formations)}")
+
+    plot_utils.plot_bh_formations(bh_formations)
+
+    return None
+
 class BHWorldLine:
 
     def __init__(self, wid, birth_time, birth_id, birth_mass):
@@ -1162,6 +1172,7 @@ class BHWorldLine:
             partner_type, partner_mass,
             host_spin=np.nan,
             partner_spin=np.nan,
+            rem_spin=np.nan,
             semi_maj=np.nan,
             eccentricity=np.nan,
             disrupt=False
@@ -1183,6 +1194,7 @@ class BHWorldLine:
                     "partner_type" : partner_type,
                     "partner_mass" : partner_mass,
                     "partner_spin" : partner_spin,
+                    "rem_spin" : rem_spin,
                     "semi_maj" : semi_maj,
                     "eccentricity" : eccentricity
                 }
@@ -1262,6 +1274,7 @@ class BHWorldLine:
         partner_masses = []
         host_spins = []
         partner_spins = []
+        rem_spins = []
         semi_majs = []
         eccentricitys = []
 
@@ -1283,6 +1296,7 @@ class BHWorldLine:
                 partner_masses.append(event['partner_mass'])
                 host_spins.append(event.get('host_spin', np.nan))
                 partner_spins.append(event.get('partner_spin', np.nan))
+                rem_spins.append(event.get('rem_spin', np.nan))
                 semi_majs.append(event.get('semi_maj', np.nan))
                 eccentricitys.append(event.get('eccentricity', np.nan))
 
@@ -1295,6 +1309,7 @@ class BHWorldLine:
             'partner_masses' : partner_masses,
             'host_spins' : host_spins,
             'partner_spins' : partner_spins,
+            'rem_spins' : rem_spins,
             'semi_majs' : semi_majs,
             'eccentricitys' : eccentricitys,
         }
@@ -1709,6 +1724,7 @@ def generate_worldlines(out_loc, verbose=True):
                                        partner_mass = bh_info['mass_merged'][nth],
                                        host_spin = bh_info.get('spin_host', np.full(len(bh_info['time']), np.nan))[nth],
                                        partner_spin = bh_info.get('spin_merged', np.full(len(bh_info['time']), np.nan))[nth],
+                                       rem_spin = bh_info.get('rem_spin', np.full(len(bh_info['time']), np.nan))[nth],
                                        semi_maj = bh_info.get('semi_maj', np.full(len(bh_info['time']), np.nan))[nth],
                                        eccentricity = bh_info.get('eccentricity', np.full(len(bh_info['time']), np.nan))[nth],
                                        disrupt = False
@@ -1746,6 +1762,7 @@ def generate_worldlines(out_loc, verbose=True):
                                           partner_mass = bh_info['mass_host'][nth],
                                           host_spin = bh_info.get('spin_merged', np.full(len(bh_info['time']), np.nan))[nth],
                                           partner_spin = bh_info.get('spin_host', np.full(len(bh_info['time']), np.nan))[nth],
+                                          rem_spin = bh_info.get('rem_spin', np.full(len(bh_info['time']), np.nan))[nth],
                                           disrupt = True
                                       )       
  

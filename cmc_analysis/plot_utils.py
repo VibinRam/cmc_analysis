@@ -242,3 +242,48 @@ def plot_bh_mergers(all_mergers):
     fig3.savefig('merger_plot3_lowspin.pdf')
 
     return ax
+
+def plot_bh_formations(bh_formations):
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    labeled_points = False
+
+    for bh_id in bh_formations.keys():
+        birth_time = bh_formations[bh_id]['time']
+        m_progenitor = bh_formations[bh_id]['m_progenitor']
+        m_bh = bh_formations[bh_id]['m_bh']
+
+        ax.plot(
+            [birth_time, birth_time],
+            [m_progenitor, m_bh],
+            color='k',
+            linewidth=0.5,
+            linestyle='dashed'
+        )
+        ax.scatter(
+            birth_time,
+            m_progenitor,
+            color='tab:orange',
+            s=12,
+            label='Progenitor mass' if not labeled_points else None,
+        )
+        ax.scatter(
+            birth_time,
+            m_bh,
+            color='tab:blue',
+            s=12,
+            label='BH mass' if not labeled_points else None,
+        )
+        labeled_points = True
+
+    ax.set_xlabel('time')
+    ax.set_ylabel('mass')
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlim([1e-3, 1e-1])
+    if labeled_points:
+        ax.legend()
+
+    fig.savefig('formations_plot1.pdf')
+    return ax
+        
