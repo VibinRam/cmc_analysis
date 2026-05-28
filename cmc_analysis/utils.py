@@ -279,8 +279,12 @@ def sort_snap(out_loc, prefix):
 
     return all_snap_files
 
-def parse_conv_sh(out_loc, prefix):
-    """Parse a CMC conv.sh file and return a dict of unit conversion values."""
+def parse_conv_sh(out_loc, prefix, save_path=None):
+    """Parse a CMC conv.sh file and return a dict of unit conversion values.
+
+    If `save_path` is provided, write `conv_sh.pkl` there; otherwise write to
+    `out_loc` (backwards-compatible).
+    """
     filepath = os.path.join(out_loc, f"{prefix}.conv.sh")
     units = {}
     comment = None
@@ -299,12 +303,16 @@ def parse_conv_sh(out_loc, prefix):
                     units[key] = {'value': val, 'description': comment}
                 comment = None
 
-    with open(os.path.join(out_loc, "conv_sh.pkl"), 'wb') as f:
+    save_dir = save_path if save_path is not None else out_loc
+    if save_path is not None and not os.path.isdir(save_dir):
+        raise FileNotFoundError(f"Save directory '{save_dir}' does not exist. Will not create it.")
+
+    with open(os.path.join(save_dir, "conv_sh.pkl"), 'wb') as f:
         pickle.dump(units, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     return units
 
-def parse_bh_tracks(out_loc, prefix):
+def parse_bh_tracks(out_loc, prefix, save_path=None):
 
     conv_units = load_conv_sh(out_loc)
 
@@ -381,12 +389,16 @@ def parse_bh_tracks(out_loc, prefix):
                     bh_tracks[bh_ids[i]]["companion_id"].append(companion_ids[i])
                     bh_tracks[bh_ids[i]]["companion_type"].append(companion_types[i])
 
-    with open(os.path.join(out_loc, "bh_tracks.pkl"), 'wb') as f:
+    save_dir = save_path if save_path is not None else out_loc
+    if save_path is not None and not os.path.isdir(save_dir):
+        raise FileNotFoundError(f"Save directory '{save_dir}' does not exist. Will not create it.")
+
+    with open(os.path.join(save_dir, "bh_tracks.pkl"), 'wb') as f:
         pickle.dump(bh_tracks, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     return bh_tracks
 
-def parse_bh_mergers(out_loc, prefix):
+def parse_bh_mergers(out_loc, prefix, save_path=None):
 
     merger_fname = f"{prefix}.semergedisrupt.log"
 
@@ -646,12 +658,16 @@ def parse_bh_mergers(out_loc, prefix):
             merger_fname,
         )
 
-    with open(os.path.join(out_loc, "bh_mergers.pkl"), "wb") as f:
+    save_dir = save_path if save_path is not None else out_loc
+    if save_path is not None and not os.path.isdir(save_dir):
+        raise FileNotFoundError(f"Save directory '{save_dir}' does not exist. Will not create it.")
+
+    with open(os.path.join(save_dir, "bh_mergers.pkl"), "wb") as f:
         pickle.dump(bh_mergers, f, protocol=pickle.HIGHEST_PROTOCOL)    
 
     return bh_mergers  
 
-def parse_bh_collisions(out_loc, prefix):
+def parse_bh_collisions(out_loc, prefix, save_path=None):
 
     collision_fname = f"{prefix}.collision.log"
 
@@ -722,12 +738,16 @@ def parse_bh_collisions(out_loc, prefix):
                 "V_inf" : V_inf
             }
 
-    with open(os.path.join(out_loc, "bh_collisions.pkl"), 'wb') as f:
+    save_dir = save_path if save_path is not None else out_loc
+    if save_path is not None and not os.path.isdir(save_dir):
+        raise FileNotFoundError(f"Save directory '{save_dir}' does not exist. Will not create it.")
+
+    with open(os.path.join(save_dir, "bh_collisions.pkl"), 'wb') as f:
         pickle.dump(bh_collisions, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     return bh_collisions
 
-def parse_bh_escapers(out_loc, prefix):
+def parse_bh_escapers(out_loc, prefix, save_path=None):
 
     conv_units = load_conv_sh(out_loc)
 
@@ -825,12 +845,16 @@ def parse_bh_escapers(out_loc, prefix):
                 "companion_spin" : companion_spins[i]
                }
     
-    with open(os.path.join(out_loc, "bh_escapers.pkl"), 'wb') as f:
+    save_dir = save_path if save_path is not None else out_loc
+    if save_path is not None and not os.path.isdir(save_dir):
+        raise FileNotFoundError(f"Save directory '{save_dir}' does not exist. Will not create it.")
+
+    with open(os.path.join(save_dir, "bh_escapers.pkl"), 'wb') as f:
         pickle.dump(bh_escapers, f, protocol=pickle.HIGHEST_PROTOCOL) 
                
     return bh_escapers    
 
-def parse_bh_formations(out_loc, prefix):
+def parse_bh_formations(out_loc, prefix, save_path=None):
 
     bh_formations_fname = f"{prefix}.bhformation.dat"
 
@@ -857,7 +881,11 @@ def parse_bh_formations(out_loc, prefix):
             "binary" : int(row.binary)
         }
 
-    with open(os.path.join(out_loc, "bh_formations.pkl"), 'wb') as f:
+    save_dir = save_path if save_path is not None else out_loc
+    if save_path is not None and not os.path.isdir(save_dir):
+        raise FileNotFoundError(f"Save directory '{save_dir}' does not exist. Will not create it.")
+
+    with open(os.path.join(save_dir, "bh_formations.pkl"), 'wb') as f:
         pickle.dump(bh_formations, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     return bh_formations
@@ -1531,7 +1559,7 @@ class BHWorldLine:
 
         return ax
 
-def generate_worldlines(out_loc, verbose=True):
+def generate_worldlines(out_loc, save_path=None, verbose=True):
 
     if not verbose:
 
@@ -1990,10 +2018,14 @@ def generate_worldlines(out_loc, verbose=True):
 
     add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid, fit)
 
-    with open(os.path.join(out_loc, "bh_worldlines.pkl"), 'wb') as f:
+    save_dir = save_path if save_path is not None else out_loc
+    if save_path is not None and not os.path.isdir(save_dir):
+        raise FileNotFoundError(f"Save directory '{save_dir}' does not exist. Will not create it.")
+
+    with open(os.path.join(save_dir, "bh_worldlines.pkl"), 'wb') as f:
         pickle.dump(bh_worldlines, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    with open(os.path.join(out_loc, "bh_id_to_wid.pkl"), 'wb') as f:
+    with open(os.path.join(save_dir, "bh_id_to_wid.pkl"), 'wb') as f:
         pickle.dump(bh_id_to_wid, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     return bh_worldlines, bh_id_to_wid
@@ -2289,7 +2321,7 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid, fit):
         update_wid_mass_spin(wid, bh_worldlines, bh_id_to_wid, conv_units, list_updated_wids, fit)
 
 
-def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
+def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid, save_path=None):
 
     wid_of_mergers = {}
 
@@ -2446,7 +2478,11 @@ def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
         del wid_of_mergers[wid]['first_accretion_time']
         del wid_of_mergers[wid]['first_collision_time']
 
-    with open(os.path.join(out_loc, "all_mergers.pkl"), 'wb') as f:
+    save_dir = save_path if save_path is not None else out_loc
+    if save_path is not None and not os.path.isdir(save_dir):
+        raise FileNotFoundError(f"Save directory '{save_dir}' does not exist. Will not create it.")
+
+    with open(os.path.join(save_dir, "all_mergers.pkl"), 'wb') as f:
         pickle.dump(wid_of_mergers, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     return wid_of_mergers
