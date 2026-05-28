@@ -9,6 +9,7 @@ import logging
 from matplotlib.collections import LineCollection
 import h5py
 import astropy.constants as astropy_const
+import surfinBH
 
 logger = logging.getLogger(__name__)
 
@@ -477,7 +478,18 @@ def parse_bh_mergers(out_loc, prefix):
 
     merger_df = pd.read_csv(mergerdat_file, comment='#', sep=r'\s+', engine='python',  header=None,  index_col=None)
 
-    merger_df.columns = BHMERG_COLS
+    if merger_df.shape[1] == len(BHMERG_COLS):
+        merger_cols = BHMERG_COLS
+        has_final_id = True
+    elif merger_df.shape[1] == len(BHMERG_COLS) - 1:
+        merger_cols = [col for col in BHMERG_COLS if col != "final_id"]
+        has_final_id = False
+    else:
+        raise ValueError(
+            f"Unexpected number of columns in {mergerdat_fname}: {merger_df.shape[1]}"
+        )
+
+    merger_df.columns = merger_cols
 
     # Initialize spin arrays once per remnant before filling from bhmerger.dat.
     for id_rem, merger_info in bh_mergers.items():
@@ -556,7 +568,6 @@ def parse_bh_mergers(out_loc, prefix):
     for row in unmatched_rows:
 
         if float(row.m1) >= float(row.m2):
-            id_rem = int(row.final_id)
             id_host = int(row.id1)
             id_merged = int(row.id2)
             mass_host = float(row.m1)
@@ -567,7 +578,6 @@ def parse_bh_mergers(out_loc, prefix):
             semi_maj = float(row.a_100M)
             eccentricity = float(row.e_100M)
         else:
-            id_rem = int(row.final_id)
             id_host = int(row.id2)
             id_merged = int(row.id1)
             mass_host = float(row.m2)
@@ -577,6 +587,13 @@ def parse_bh_mergers(out_loc, prefix):
             rem_spin = float(row.spin_final)
             semi_maj = float(row.a_100M)
             eccentricity = float(row.e_100M)
+
+        if has_final_id:
+            id_rem = int(row.final_id)
+        else:
+            # Older bhmerger.dat files do not store the remnant ID, so use the
+            # surviving component as the best available key for the fallback row.
+            id_rem = id_host
 
         if id_rem not in bh_mergers:
 
@@ -1967,7 +1984,11 @@ def generate_worldlines(out_loc, verbose=True):
         bh_worldlines[wid].sort_history()
         bh_worldlines[wid].sort_events()
 
-    add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid)
+    fit_name = 'NRSur7dq4Remnant'
+
+    fit = surfinBH.LoadFits(fit_name)
+
+    add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid, fit)
 
     with open(os.path.join(out_loc, "bh_worldlines.pkl"), 'wb') as f:
         pickle.dump(bh_worldlines, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -2042,10 +2063,11 @@ def get_wid_from_id(bh_id, bh_id_to_wid):
     else:
         logger.error(f"{bh_id} doesn't have wid")
         raise KeyError
-    
-def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
 
-    conv_units = load_conv_sh(out_loc)
+def update_wid_mass_spin(wid, bh_worldlines, bh_id_to_wid, conv_units, list_updated_wids, fit):
+
+    if wid in list_updated_wids:
+        return
 
     M_sun_kg = astropy_const.M_sun.value
     G_const = astropy_const.G.value
@@ -2053,29 +2075,77 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
 
     f_acc = 1.0
 
-    for wid, bhwl in bh_worldlines.items():
+    old_partner_id = 0
+    latest_host_spin = 0
+    latest_host_mass = 0
 
-        old_partner_id = 0
-        latest_host_spin = 0
-        latest_host_mass = 0
+    for event in bh_worldlines[wid].events:
 
-        for event in bhwl.events:
+        if event['event'] == 'accretion':
 
-            if event['event'] == 'accretion':
+            try:
+                a_star = event['host_spin']
+            except KeyError:
+                a_star = latest_host_spin
+                event['host_spin'] = a_star
 
-                try:
-                    a_star = event['host_spin']
-                except KeyError:
-                    a_star = latest_host_spin
-                    event['host_spin'] = a_star
+            new_partner_id = event['partner_id']
 
-                new_partner_id = event['partner_id']
+            mass_bh = event['mass'] #in MSUN
+            accr_time = code_unit_to_myr(event['accr_time'], conv_units) #in MYR
+            dmdt = event['dmdt'] #in Msun/MYR
 
-                mass_bh = event['mass'] #in MSUN
-                accr_time = code_unit_to_myr(event['accr_time'], conv_units) #in MYR
-                dmdt = event['dmdt'] #in Msun/MYR
+            m_acc = dmdt * accr_time
 
-                m_acc = dmdt * accr_time
+            if (old_partner_id == 0) or (new_partner_id == old_partner_id):
+
+                prograde = True
+
+            else:
+
+                cos_theta, _ = get_isotropic_tilts()
+
+                if cos_theta > 0:
+                    prograde = True
+                else:
+                    prograde = False
+
+            m_bh_final, a_star_final = a_star_isco_kerr(mass_bh, a_star, f_acc, m_acc, prograde)
+
+            event['mass'] = m_bh_final
+            event['host_spin'] = a_star_final
+            
+            latest_host_spin = a_star_final
+            latest_host_mass = m_bh_final
+            print(f"{wid} spin changed due to accretion")
+
+        elif event['event'] == 'collision':
+
+            mass_bh = event['mass'] 
+
+            new_partner_id = event['partner_ids']
+
+            try:
+                a_star = event['host_spin']
+            except KeyError:
+                a_star = latest_host_spin
+                event['host_spin'] = a_star    
+
+            J_bh = a_star * G_const * (mass_bh * M_sun_kg)**2 /c_const            
+
+            if len(event['partner_masses']) == 1:
+
+                m_star = event['partner_masses'][0]
+
+            else:
+
+                logger.error(f"{len(event['partner_masses'])} collision partners present in {wid}")
+
+                continue
+
+            if np.isnan(event['impact_par']):
+
+                logger.error(f"Impact parameter is unavailable for {wid} using disruption accretion model")
 
                 if (old_partner_id == 0) or (new_partner_id == old_partner_id):
 
@@ -2090,120 +2160,133 @@ def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid):
                     else:
                         prograde = False
 
-                m_bh_final, a_star_final = a_star_isco_kerr(mass_bh, a_star, f_acc, m_acc, prograde)
+                m_bh_final, a_star_final = a_star_isco_kerr(mass_bh, a_star, f_acc, m_star, prograde)
 
                 event['mass'] = m_bh_final
                 event['host_spin'] = a_star_final
-                
+
                 latest_host_spin = a_star_final
                 latest_host_mass = m_bh_final
                 print(f"{wid} spin changed due to accretion")
 
-            elif event['event'] == 'collision':
+            else:
+            
+                b = event['impact_par'] * 6.957e8 #from RSUN to m
+                v_inf = event['V_inf'] * 1000 #in m/s
 
-                mass_bh = event['mass'] 
+                mu = (mass_bh * m_star)/(mass_bh + m_star)
 
-                new_partner_id = event['partner_ids']
+                focus_factor = np.sqrt(1 + 2 * G_const * (mass_bh + m_star) * M_sun_kg / (b * v_inf**2))
 
-                try:
-                    a_star = event['host_spin']
-                except KeyError:
-                    a_star = latest_host_spin
-                    event['host_spin'] = a_star    
+                dJ = mu * M_sun_kg * b * v_inf * focus_factor
 
-                J_bh = a_star * G_const * (mass_bh * M_sun_kg)**2 /c_const            
+                if (old_partner_id == 0) or (new_partner_id == old_partner_id):
 
-                if len(event['partner_masses']) == 1:
-
-                    m_star = event['partner_masses'][0]
+                    J_bh += dJ
 
                 else:
 
-                    logger.error(f"{len(event['partner_masses'])} collision partners present in {wid}")
+                    cos_theta, _ = get_isotropic_tilts()
 
-                    continue
+                    J_bh = np.sqrt(J_bh**2 + dJ**2 + 2 * J_bh * dJ * cos_theta)
 
-                if np.isnan(event['impact_par']):
+                old_partner_id = new_partner_id
+                a_star_final = c_const * J_bh / (G_const * (mass_bh * M_sun_kg) ** 2)
+                event['host_spin'] = min(a_star_final, 0.998)
+                latest_host_spin = min(a_star_final, 0.998)
+                latest_host_mass = mass_bh
+                print(f"{wid} spin changed due to collision")
 
-                    logger.error(f"Impact parameter is unavailable for {wid} using disruption accretion model")
+        elif event['event'] == 'merger':
 
-                    if (old_partner_id == 0) or (new_partner_id == old_partner_id):
-
-                        prograde = True
-
-                    else:
-
-                        cos_theta, _ = get_isotropic_tilts()
-
-                        if cos_theta > 0:
-                            prograde = True
-                        else:
-                            prograde = False
-
-                    m_bh_final, a_star_final = a_star_isco_kerr(mass_bh, a_star, f_acc, m_star, prograde)
-
-                    event['mass'] = m_bh_final
-                    event['host_spin'] = a_star_final
-
-                    latest_host_spin = a_star_final
-                    latest_host_mass = m_bh_final
-                    print(f"{wid} spin changed due to accretion")
-
-                else:
-                
-                    b = event['impact_par'] * 6.957e8 #from RSUN to m
-                    v_inf = event['V_inf'] * 1000 #in m/s
-
-                    mu = (mass_bh * m_star)/(mass_bh + m_star)
-
-                    focus_factor = np.sqrt(1 + 2 * G_const * (mass_bh + m_star) * M_sun_kg / (b * v_inf**2))
-
-                    dJ = mu * M_sun_kg * b * v_inf * focus_factor
-
-                    if (old_partner_id == 0) or (new_partner_id == old_partner_id):
-
-                        J_bh += dJ
-
-                    else:
-
-                        cos_theta, _ = get_isotropic_tilts()
-
-                        J_bh = np.sqrt(J_bh**2 + dJ**2 + 2 * J_bh * dJ * cos_theta)
-
-                    old_partner_id = new_partner_id
-                    a_star_final = c_const * J_bh / (G_const * (mass_bh * M_sun_kg) ** 2)
-                    event['host_spin'] = min(a_star_final, 0.998)
-                    latest_host_spin = min(a_star_final, 0.998)
-                    print(f"{wid} spin changed due to collision")
-
-            elif event['event'] == 'merger':
-
+            if latest_host_mass != 0:
                 event['host_spin'] = latest_host_spin
                 event['mass_host'] = latest_host_mass
 
+                new_partner_id = event['partner_id']
+                partner_wid = get_wid_from_id(new_partner_id, bh_id_to_wid)
+
+                if partner_wid not in list_updated_wids:
+                    update_wid_mass_spin(partner_wid, bh_worldlines, bh_id_to_wid, conv_units, list_updated_wids, fit)
+
+                partner_spin = event['partner_spin']
+                partner_mass = event['partner_mass']
+                host_spin = event['host_spin']
+                host_mass = event['mass_host']
+
+                if (old_partner_id == 0) or (new_partner_id == old_partner_id):
+                    cos_theta = 0
+                else:
+                    cos_theta, _ = get_isotropic_tilts()
+
+                if host_mass > partner_mass:
+                    mass_ratio = host_mass/partner_mass
+
+                    host_spin_vec = [0, 0, host_spin]
+
+                    partner_spin_vec = [0, partner_spin*(np.sqrt(1 - cos_theta**2)), partner_spin*cos_theta]
+
+                    print(mass_ratio, host_spin, partner_spin)
+
+                    MAX_Q = 4.0
+                    if mass_ratio > MAX_Q:
+                        logging.warning(
+                            f"Mass ratio {mass_ratio:.2f} exceeds NRSur7dq4 limit; "
+                            f"clamping to {MAX_Q} for remnant fit."
+                        )
+                        mass_ratio = MAX_Q
+
+                    mf, chif, _,_,_,_ = fit.all(mass_ratio, host_spin_vec, partner_spin_vec)
+                else:
+                    mass_ratio = partner_mass/host_mass
+
+                    partner_spin_vec = [0, 0, partner_spin]
+
+                    host_spin_vec = [0, host_spin*(np.sqrt(1 - cos_theta**2)), host_spin*cos_theta]
+
+                    mf, chif, _,_,_,_ = fit.all(mass_ratio, partner_spin_vec, host_spin_vec)
+
+                #chif is array of 3
+                chif_scalar = np.sqrt(np.sum(np.array(chif)**2))
+
+                latest_host_spin = chif_scalar
+                latest_host_mass = mf * (host_mass + partner_mass)
+
+                event['rem_spin'] = latest_host_spin
+                event['mass'] = latest_host_mass
+
                 print(f"{wid} spin change added to merger")
 
-                latest_host_spin = event['rem_spin']
-                latest_host_mass = event['rem_mass']
+        elif event['event'] == 'merged':
 
-            elif event['event'] == 'merged':
+            merged_into = event['merged_into']
 
-                merged_into = event['merged_into']
+            try:
+                merged_into_wid = get_wid_from_id(merged_into, bh_id_to_wid)
+            except KeyError:
+                logger.error(f"{wid} with partner {merged_into}")
+                raise
 
-                try:
-                    merged_into_wid = get_wid_from_id(merged_into, bh_id_to_wid)
-                except KeyError:
-                    logger.error(f"{wid} with partner {merged_into}")
-                    raise
+            for partner_event in bh_worldlines[merged_into_wid].events:
 
-                for partner_event in bh_worldlines[merged_into_wid].events:
+                if (partner_event['time'] == event['time']) and (partner_event['event'] == 'merger'):
 
-                    if (partner_event['time'] == event['time']) and (partner_event['event'] == 'merger'):
-
-                        partner_event['partner_spin'] = latest_host_spin
+                    if latest_host_mass != 0:
                         partner_event['partner_mass'] = latest_host_mass
+                        partner_event['partner_spin'] = latest_host_spin
 
                         print(f"{wid} spin change added to merged")
+
+    list_updated_wids.append(wid)
+    
+def add_accr_based_spin(out_loc, bh_worldlines, bh_id_to_wid, fit):
+
+    conv_units = load_conv_sh(out_loc)
+    list_updated_wids = []
+
+    for wid, bhwl in bh_worldlines.items():
+
+        update_wid_mass_spin(wid, bh_worldlines, bh_id_to_wid, conv_units, list_updated_wids, fit)
 
 
 def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
@@ -2348,8 +2431,12 @@ def get_all_mergers(out_loc, bh_worldlines, bh_id_to_wid):
 
             coll_data = bh_worldlines[wid].get_collisions()
             coll_times = coll_data.get('times', [])
+            partner_coll_data = bh_worldlines[partner_wid].get_collisions()
+            partner_coll_times = partner_coll_data.get('times',[])
 
             if any(ct < time for ct in coll_times):
+                merger_str.add('C')
+            elif any(ct < time for ct in partner_coll_times):
                 merger_str.add('C')
 
             wid_of_mergers[wid]['merger_types'].append(
