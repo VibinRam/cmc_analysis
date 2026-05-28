@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 from cmc_analysis.utils import *
 import scipy.optimize as scp
 from matplotlib.colors import LogNorm
+import os
 
 LEGEND_KWARGS = dict(
     fontsize=6,
@@ -79,7 +80,7 @@ def plot_bh_worldlines(
 
     return ax
         
-def plot_bh_mergers(all_mergers):
+def plot_bh_mergers(all_mergers, save_path = ""):
 
     fig = plt.figure(figsize=(8,6))
 
@@ -293,14 +294,14 @@ def plot_bh_mergers(all_mergers):
     ax4.set_ylabel('eccentricity')  
     ax4.legend(**LEGEND_KWARGS)
 
-    fig.savefig('merger_plot.pdf')
-    fig2.savefig('merger_plot2.pdf')
-    fig3.savefig('merger_plot3.pdf')
-    fig4.savefig('merger_plot4.pdf')
+    fig.savefig(os.path.join(save_path, 'merger_plot.pdf'))
+    fig2.savefig(os.path.join(save_path, 'merger_plot2.pdf'))
+    fig3.savefig(os.path.join(save_path, 'merger_plot3.pdf'))
+    fig4.savefig(os.path.join(save_path, 'merger_plot4.pdf'))
 
     # ax3.set_ylim(-1e-4, 1e-4)
     ax3.set_yscale('log')
-    fig3.savefig('merger_plot3_lowspin.pdf')
+    fig3.savefig(os.path.join(save_path, 'merger_plot3_lowspin.pdf'))
 
     #Printing count report
     print(f"hg mergers - {len(hg_spins)}")
